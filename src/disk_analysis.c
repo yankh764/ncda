@@ -8,14 +8,31 @@
 */
 
 #include <stdlib.h>
-#include <sys/stat.h>
 #include "informative.h" 
 #include "disk_analysis.h"
 
-/*
- * Get file status using it's file descriptor
- */
-static struct stat *get_stat()
+static void free_and_null(void **ptr)
 {
-
+        free(*ptr);
+        *ptr = NULL;
 }
+
+/*
+static inline void *alloc_stat()
+{
+        return malloc_inf(sizeof(struct stat));
+}
+
+static struct stat *get_stat(const int fd)
+{
+        struct stat *statbuf;
+
+        if ((statbuf = alloc_stat())
+                if (fstat_inf(fd, statbuf))
+                        free_and_null(&statbuf);
+
+        return statbuf;
+}
+*/
+
+
