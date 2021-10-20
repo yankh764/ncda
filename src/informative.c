@@ -32,3 +32,31 @@ int stat_inf(const char *path, struct stat *statbuf)
 
         return retval;
 }
+
+DIR *opendir_inf(const char *path)
+{
+        DIR *retval;
+
+        if (!(retval = opendir(path)))
+                error(0, errno, "could not open '%s'", path);
+
+        return retval;
+}
+
+int closedir_inf(DIR *dp)
+{
+        int retval;
+
+        if ((retval = closedir(dp)))
+                error(0, errno, "could not close directory");
+
+        return retval;
+}
+
+struct dirent *readdir_inf(DIR *dp)
+{
+        struct dirent retval;
+
+        if(!(readdir(dp)) && errno)
+
+} 

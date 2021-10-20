@@ -11,14 +11,8 @@
 #include "informative.h" 
 #include "disk_analysis.h"
 
-static void free_and_null(void **ptr)
-{
-        free(*ptr);
-        *ptr = NULL;
-}
-
 /*
-static inline void *alloc_stat()
+static void *alloc_stat()
 {
         return malloc_inf(sizeof(struct stat));
 }
@@ -35,4 +29,56 @@ static struct stat *get_stat(const int fd)
 }
 */
 
+static inline void free_and_null(void **ptr)
+{
+        free(*ptr);
+        *ptr = NULL;
+}
 
+static void *alloc_bin_tree()
+{
+        struct bin_tree *node;
+
+        if ((node = malloc_inf(sizeof(struct bin_tree)))) {
+                /* 
+                 * I decided to NULL the left and right child here
+                 * so I don't mistakely forget to do that in further 
+                 * functions
+                 */
+                node->left = NULL;
+                node->right = NULL;
+        }
+        return node;
+}
+
+static void free_bin_tree(struct bin_tree *root)
+{
+        if (root->left)
+                free_bin_tree(root->left);
+        if (root->right)
+                free_bin_tree(root->right);
+        
+        free_bin_tree(root);
+}
+
+/*
+ * An helper function for get_dirs_content()
+ */
+static struct bin_tree *_get_dirs_content(DIR *)
+{
+        
+}
+
+static struct bin_tree *get_dirs_content(const char *path)
+{
+        struct bin_tree *root = NULL;
+        DIR *dp;
+
+        if ((dp = opendir_inf(path))) {
+                root = _get_dirs_content(dp);
+                
+                if (closedir_inf(dp) && root)
+                        free_bin_tree(root);
+        }
+        return root;
+}
