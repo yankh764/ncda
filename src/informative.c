@@ -55,8 +55,10 @@ int closedir_inf(DIR *dp)
 
 struct dirent *readdir_inf(DIR *dp)
 {
-        struct dirent retval;
+        struct dirent *retval;
 
-        if(!(readdir(dp)) && errno)
+        if(!(retval = readdir(dp)) && errno)
+                error(0, errno, "could not read directory's entries");
 
+        return retval;
 } 
