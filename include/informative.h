@@ -1,5 +1,5 @@
-#ifndef INFORMATIVE_H
-#define INFORMATIVE_H
+#ifndef _INFORMATIVE_H
+#define _INFORMATIVE_H
 
 #include <dirent.h>
 #include <sys/stat.h>

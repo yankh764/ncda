@@ -7,7 +7,17 @@
 ---------------------------------------------------------
 */
 
+/*
+ * Defining _GNU_SOURCE macro since it achives all the desired
+ * feature test macro requirements, which are:
+ *     1) _XOPEN_SOURCE >= 500 || _ISOC99_SOURCE for snprintf()
+ *     2) _DEFAULT_SOURCE || _BSD_SOURCE for d_type field in struct dirent
+ */
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 #include "informative.h" 
 #include "disk_analysis.h"
 
@@ -61,6 +71,49 @@ static void free_bin_tree(struct bin_tree *root)
         free_bin_tree(root);
 }
 
+static char *get_entry_path(const char *dir_path, const char *entry_name)
+{
+        const size_t len = strlen(dir_path) + strlen(entry_name) + 2;
+        char *entry_path;
+
+        if ((entry_path = malloc_inf(len)))
+                snprintf(entry_path, len, "%s/%s", dir_path, entry_name);
+
+        return entry_path;
+}
+
+static inline void *alloc_file_info()
+{
+        return malloc_inf(sizeof(struct file_info));
+}
+
+/*
+ * The fucntion uses stat() to get files status but it 
+ * will not consider permission denied error as a failure.
+ */
+static int stat_custom_fail(const char *path, struct stat **statbuf)
+{
+        int retval;
+
+        if ((retval = stat_inf(path, *statbuf))) 
+                if (errno == EACCES) {
+                        retval = 0;
+                        *statbuf = NULL;
+                }
+        return retval;
+}
+
+static struct file_info *get_file_info(const char *path, const char *entry_name)
+{
+        struct file_info *info;
+
+        if ((info = alloc_file_info())) {
+                if (!stat_custom_fail(path, &(info->status)))
+        }
+
+        return info;
+}
+
 /*
  * An helper function for get_dirs_content()
  */
@@ -70,7 +123,7 @@ static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
         struct bin_tree *root;
         struct dirent *entry;
         
-        if ((root = alloc_bin_tree())) {
+        if ((current = root = alloc_bin_tree())) {
                 /* 
                  * Reset errno to 0 to distnguish between 
                  * error and end of directory in readdir_inf() 
@@ -78,7 +131,7 @@ static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
                 errno = 0;
 
                 while ((entry = readdir_inf(dp))) {
-                           
+                         
                 }
         }
 }

@@ -1,5 +1,5 @@
-#ifndef DISK_ANALYSIS_H
-#define DISK_ANALYSIS_H
+#ifndef _DISK_ANALYSIS_H
+#define _DISK_ANALYSIS_H
 
 #include <sys/stat.h>
 
@@ -10,7 +10,7 @@ struct file_info {
 }
 
 struct bin_tree {
-        void *info;
+        void *data;
         struct bin_tree *left;
         struct bin_tree *right;
 }
