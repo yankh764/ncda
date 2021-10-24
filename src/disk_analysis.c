@@ -91,26 +91,43 @@ static inline void *alloc_file_info()
  * The fucntion uses stat() to get files status but it 
  * will not consider permission denied error as a failure.
  */
-static int stat_custom_fail(const char *path, struct stat **statbuf)
+static int stat_custom_fail(const char *path, struct stat *statbuf)
 {
         int retval;
 
-        if ((retval = stat_inf(path, *statbuf))) 
+        if ((retval = stat_inf(path, statbuf))) 
                 if (errno == EACCES) {
                         retval = 0;
-                        *statbuf = NULL;
+                        statbuf = NULL;
                 }
         return retval;
 }
 
+/*
+ * Insert the remaining file_info fields to the structure which 
+ * are file_info name, and file_info path.
+ */
+static inline void insert_rem_file_info(struct file_info *info, 
+                                        const char *path, 
+                                        const char *entry_name,
+                                        size_t entry_name_len)
+{
+        memcpy(info->name, entry_name, entry_name_len);
+        info->path = (char *) path;
+}
+
 static struct file_info *get_file_info(const char *path, const char *entry_name)
 {
+        const size_t len = strlen(entry_name) + 1;
         struct file_info *info;
 
         if ((info = alloc_file_info())) {
-                if (!stat_custom_fail(path, &(info->status)))
+                if (stat_custom_fail(path, &(info->status)) || 
+                   !(info->name = malloc_inf(len)))
+                        free_and_null((void **) &info);
+                else 
+                        insert_rem_file_info(info, path, entry_name, len); 
         }
-
         return info;
 }
 
@@ -119,20 +136,18 @@ static struct file_info *get_file_info(const char *path, const char *entry_name)
  */
 static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
 {
-        struct bin_tree *currnet;
+        struct bin_tree *current;
         struct bin_tree *root;
         struct dirent *entry;
         
-        if ((current = root = alloc_bin_tree())) {
-                /* 
-                 * Reset errno to 0 to distnguish between 
-                 * error and end of directory in readdir_inf() 
-                 */
-                errno = 0;
+        /* 
+         * Reset errno to 0 to distnguish between 
+         * error and end of directory in readdir_inf() 
+         */
+        errno = 0;
 
-                while ((entry = readdir_inf(dp))) {
+        while ((entry = readdir_inf(dp))) {
                          
-                }
         }
 }
 

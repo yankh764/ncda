@@ -7,12 +7,12 @@ struct file_info {
         char *name;
         char *path;
         struct stat status;
-}
+};
 
 struct bin_tree {
         void *data;
         struct bin_tree *left;
         struct bin_tree *right;
-}
+};
 
 #endif
