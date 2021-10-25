@@ -91,14 +91,14 @@ static inline void *alloc_file_info()
  * The fucntion uses stat() to get files status but it 
  * will not consider permission denied error as a failure.
  */
-static int stat_custom_fail(const char *path, struct stat *statbuf)
+static int stat_custom_fail(const char *path, struct file_info *info)
 {
         int retval;
 
-        if ((retval = stat_inf(path, statbuf))) 
+        if ((retval = stat_inf(path, info->status))) 
                 if (errno == EACCES) {
                         retval = 0;
-                        statbuf = NULL;
+                        info->status = NULL;
                 }
         return retval;
 }
@@ -122,13 +122,20 @@ static struct file_info *get_file_info(const char *path, const char *entry_name)
         struct file_info *info;
 
         if ((info = alloc_file_info())) {
-                if (stat_custom_fail(path, &(info->status)) || 
-                   !(info->name = malloc_inf(len)))
+                if (stat_custom_fail(path, info) 
+		  || !(info->name = malloc_inf(len)))
                         free_and_null((void **) &info);
                 else 
                         insert_rem_file_info(info, path, entry_name, len); 
         }
         return info;
+}
+
+static struct bin_tree *get_right_node(struct bin_tree **root)
+{
+	if (!*root)
+		return root;
+
 }
 
 /*
@@ -139,16 +146,25 @@ static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
         struct bin_tree *current;
         struct bin_tree *root;
         struct dirent *entry;
+	char *entry_path;
         
-        /* 
+       root = current = NULL;
+	/* 
          * Reset errno to 0 to distnguish between 
          * error and end of directory in readdir_inf() 
          */
         errno = 0;
 
         while ((entry = readdir_inf(dp))) {
-                         
-        }
+		if (!(current = alloc_bin_tree()))
+			goto err_out;
+		if (!root)
+			root = current;
+		if (!(entry_path = get_entry_path(dir_path, entry->d_name)))
+			goto err_out;
+		if (!(current->data = get_file_info(entry_path, entry->d_name)))
+			goto err_out;
+	}
 }
 
 static struct bin_tree *get_dirs_content(const char *path)
