@@ -6,7 +6,7 @@
 struct file_info {
         char *name;
         char *path;
-        struct stat status;
+        struct stat *status;
 };
 
 struct bin_tree {

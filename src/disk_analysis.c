@@ -21,23 +21,11 @@
 #include "informative.h" 
 #include "disk_analysis.h"
 
-/*
-static void *alloc_stat()
+
+static inline void *alloc_stat()
 {
         return malloc_inf(sizeof(struct stat));
 }
-
-static struct stat *get_stat(const int fd)
-{
-        struct stat *statbuf;
-
-        if ((statbuf = alloc_stat())
-                if (fstat_inf(fd, statbuf))
-                        free_and_null(&statbuf);
-
-        return statbuf;
-}
-*/
 
 static inline void free_and_null(void **ptr)
 {
@@ -67,19 +55,21 @@ static void free_bin_tree(struct bin_tree *root)
                 free_bin_tree(root->left);
         if (root->right)
                 free_bin_tree(root->right);
-        
-        free_bin_tree(root);
+	free(root);
 }
 
 static char *get_entry_path(const char *dir_path, const char *entry_name)
 {
-        const size_t len = strlen(dir_path) + strlen(entry_name) + 2;
         char *entry_path;
+        size_t len;
 
-        if ((entry_path = malloc_inf(len)))
+	/* The 2 stands for a slash and a null byte */
+	len = strlen(dir_path) + strlen(entry_name) + 2;
+        
+	if ((entry_path = malloc_inf(len)))
                 snprintf(entry_path, len, "%s/%s", dir_path, entry_name);
-
-        return entry_path;
+        
+	return entry_path;
 }
 
 static inline void *alloc_file_info()
@@ -89,52 +79,69 @@ static inline void *alloc_file_info()
 
 /*
  * The fucntion uses stat() to get files status but it 
- * will not consider permission denied error as a failure.
+ * will not consider permission denied (EACCES) error as a failure.
  */
-static int stat_custom_fail(const char *path, struct file_info *info)
+static int stat_custom_fail(const char *path, struct stat *statbuf)
 {
         int retval;
 
-        if ((retval = stat_inf(path, info->status))) 
-                if (errno == EACCES) {
-                        retval = 0;
-                        info->status = NULL;
-                }
+        if ((retval = stat_inf(path, statbuf)))
+                if (errno == EACCES)
+                        retval = EACCES;
         return retval;
 }
 
-/*
- * Insert the remaining file_info fields to the structure which 
- * are file_info name, and file_info path.
- */
-static inline void insert_rem_file_info(struct file_info *info, 
-                                        const char *path, 
-                                        const char *entry_name,
-                                        size_t entry_name_len)
+static int insert_file_info_fields(struct file_info *ptr, 
+				   const char *entry_name, 
+				   const size_t entry_name_len,
+				   const char *entry_path, 
+				   struct stat *statbuf) 
 {
-        memcpy(info->name, entry_name, entry_name_len);
-        info->path = (char *) path;
+	memcpy(info->name, entry_name, entry_name_len);
+	info->path = (char *) path;
+	info->status = statbuf;
+}
+
+static inline int alloc_file_info_fields(struct file_info *ptr, 
+					 const size_t name_len)
+{	
+	int retval = -1;
+
+	if (!(ptr->name = malloc_inf(len)))
+		return retval;
+
+	if (!(ptr->status = alloc_stat())) 
+		free(ptr->name);
+	else
+		retval = 0;
+	
+	return retval;
+
 }
 
 static struct file_info *get_file_info(const char *path, const char *entry_name)
 {
         const size_t len = strlen(entry_name) + 1;
         struct file_info *info;
+	int ret;
 
         if ((info = alloc_file_info())) {
-                if (stat_custom_fail(path, info) 
-		  || !(info->name = malloc_inf(len)))
-                        free_and_null((void **) &info);
-                else 
-                        insert_rem_file_info(info, path, entry_name, len); 
-        }
+		if (alloc_file_info_fields(info, len))
+			goto err_out;
+
+		ret = stat_custom_fail(path, info);
+		if (ret == -1)
+			goto err_out;
+			
+		memcpy(info->name, entry_name, len);
+		info->path = (char *) path;
+	}
         return info;
 }
 
-static struct bin_tree *get_right_node(struct bin_tree **root)
+static void get_desired_node(struct bin_tree **new_node, 
+			     struct bin_tree **current)
 {
-	if (!*root)
-		return root;
 
 }
 
@@ -143,12 +150,13 @@ static struct bin_tree *get_right_node(struct bin_tree **root)
  */
 static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
 {
+        struct bin_tree *new_node;
         struct bin_tree *current;
         struct bin_tree *root;
         struct dirent *entry;
 	char *entry_path;
         
-       root = current = NULL;
+	root = NULL;
 	/* 
          * Reset errno to 0 to distnguish between 
          * error and end of directory in readdir_inf() 
@@ -156,10 +164,12 @@ static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
         errno = 0;
 
         while ((entry = readdir_inf(dp))) {
-		if (!(current = alloc_bin_tree()))
+		if (!(new_node = alloc_bin_tree()))
 			goto err_out;
 		if (!root)
-			root = current;
+			current = root = new_node;
+		else
+			;
 		if (!(entry_path = get_entry_path(dir_path, entry->d_name)))
 			goto err_out;
 		if (!(current->data = get_file_info(entry_path, entry->d_name)))
