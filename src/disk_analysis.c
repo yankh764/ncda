@@ -7,6 +7,7 @@
 ---------------------------------------------------------
 */
 
+
 /*
  * Defining _GNU_SOURCE macro since it achives all the desired
  * feature test macro requirements, which are:
@@ -49,12 +50,13 @@ static void *alloc_bin_tree()
         return node;
 }
 
-static void free_bin_tree(struct bin_tree *root)
+static void free_bin_tree(struct bin_tree *root, void (*free_data) (void *))
 {
         if (root->left)
-                free_bin_tree(root->left);
+                free_bin_tree(root->left, free_data);
         if (root->right)
-                free_bin_tree(root->right);
+                free_bin_tree(root->right, free_data);
+	free_data(root->data);
 	free(root);
 }
 
@@ -91,52 +93,80 @@ static int stat_custom_fail(const char *path, struct stat *statbuf)
         return retval;
 }
 
-static int insert_file_info_fields(struct file_info *ptr, 
-				   const char *entry_name, 
-				   const size_t entry_name_len,
-				   const char *entry_path, 
-				   struct stat *statbuf) 
+static inline void insert_rem_file_info_fields(struct file_info *info, 
+					       const char *name, 
+					       const size_t name_len,
+					       const char *path,
+					       const size_t path_len)
 {
-	memcpy(info->name, entry_name, entry_name_len);
-	info->path = (char *) path;
-	info->status = statbuf;
+	memcpy(info->name, name, name_len);
+	memcpy(info->path, path, path_len);
 }
 
-static inline int alloc_file_info_fields(struct file_info *ptr, 
-					 const size_t name_len)
+static int alloc_file_info_fields(struct file_info *ptr, 
+				  const size_t name_len, 
+				  const size_t path_len)
 {	
-	int retval = -1;
-
-	if (!(ptr->name = malloc_inf(len)))
-		return retval;
-
+	if (!(ptr->name = malloc_inf(name_len)))
+		goto err_out;
+	if (!(ptr->path = malloc_inf(path_len)))
+		goto err_free_name;
 	if (!(ptr->status = alloc_stat())) 
-		free(ptr->name);
-	else
-		retval = 0;
-	
-	return retval;
+		goto err_free_path;
 
+	return 0;
+
+err_free_path:
+	free(ptr->path);
+err_free_name:
+	free(ptr->name);
+err_out:
+	return -1;
+
+}
+
+static void free_file_info_fields(struct file_info *ptr)
+{
+	if (ptr->status)
+		free(ptr->status);
+
+	free(ptr->path);
+	free(ptr->name);
+}
+
+static inline void free_file_info(struct file_info *ptr)
+{
+	free_file_info_fields(ptr);
+	free(ptr);
 }
 
 static struct file_info *get_file_info(const char *path, const char *entry_name)
 {
-        const size_t len = strlen(entry_name) + 1;
+        const size_t name_len = strlen(entry_name) + 1;
+        const size_t path_len = strlen(path) + 1;
         struct file_info *info;
 	int ret;
 
         if ((info = alloc_file_info())) {
-		if (alloc_file_info_fields(info, len))
-			goto err_out;
-
-		ret = stat_custom_fail(path, info);
-		if (ret == -1)
-			goto err_out;
+		if (alloc_file_info_fields(info, name_len, path_len))
+			goto err_free_info;
+		if ((ret = stat_custom_fail(path, info->status))) {
+			if (ret == -1)
+				goto err_free_info_fields;
 			
-		memcpy(info->name, entry_name, len);
-		info->path = (char *) path;
+			free_and_null((void **) &info->status);
+		}
+		insert_rem_file_info_fields(info, entry_name, 
+					    name_len, path, path_len);
 	}
         return info;
+
+err_free_info_fields:
+	free_file_info_fields(info);
+err_free_info:
+	free(info);
+	
+	return NULL;
 }
 
 static void get_desired_node(struct bin_tree **new_node, 
@@ -186,7 +216,7 @@ static struct bin_tree *get_dirs_content(const char *path)
                 root = _get_dirs_content(dp, path);
                 
                 if (closedir_inf(dp) && root)
-                        free_bin_tree(root);
+                        free_bin_tree(root, free_file_info);
         }
         return root;
 }
