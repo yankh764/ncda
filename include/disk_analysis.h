@@ -3,10 +3,11 @@
 
 #include <sys/stat.h>
 
-struct file_info {
-        char *name;
-        char *path;
-        struct stat *status;
+struct fdata {
+	unsigned int node_num;
+        char *fname;
+        char *fpath;
+        struct stat *fstatus;
 };
 
 struct bin_tree {
