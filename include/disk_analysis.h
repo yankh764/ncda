@@ -11,7 +11,7 @@ struct fdata {
 };
 
 struct bin_tree {
-        void *data;
+        struct fdata *data;
         struct bin_tree *left;
         struct bin_tree *right;
 };

@@ -50,17 +50,29 @@ static void *alloc_bin_tree()
         return node;
 }
 
-/*
- * I decided to pass a function pointer as an argument for freeing
- * bin_tree node's data instead of hard coding it with just one function. 
- */
-static void free_bin_tree(struct bin_tree *root, void (*free_data) (void *))
+static inline void free_fdata_fields(struct fdata *ptr)
+{
+	if (ptr->fstatus)
+		free(ptr->fstatus);
+
+	free(ptr->fpath);
+	free(ptr->fname);
+}
+
+static void free_fdata(struct fdata *ptr)
+{
+	free_fdata_fields(ptr);
+	free(ptr);
+}
+
+static void free_bin_tree(struct bin_tree *root)
 {
         if (root->left)
-                free_bin_tree(root->left, free_data);
+                free_bin_tree(root->left);
         if (root->right)
-                free_bin_tree(root->right, free_data);
-	free_data(root->data);
+                free_bin_tree(root->right);
+	
+	free_fdata(root->data);
 	free(root);
 }
 
@@ -126,24 +138,6 @@ err_out:
 
 }
 
-static inline void free_fdata_fields(struct fdata *ptr)
-{
-	if (ptr->fstatus)
-		free(ptr->fstatus);
-	free(ptr->fpath);
-	free(ptr->fname);
-}
-
-/*
- * Using void pointer to the ptr argument here, to pass 
- * this function with no compiler warnings to free_bin_tree()
- */
-static void free_fdata(void *ptr)
-{
-	free_fdata_fields(ptr);
-	free(ptr);
-}
-
 static struct fdata *get_fdata(const char *path, 
 			       const char *entry_name, 
 			       unsigned int i)
@@ -175,10 +169,44 @@ err_free_fdata:
 	return NULL;
 }
 
-static struct bin_tree *get_current_node(struct bin_tree *root, 
-					 struct bin_tree *new_node)
+/*
+ * Decide which node between root->left or root->right
+ */
+static struct bin_tree *decide_which_node(struct bin_tree *root, 
+					  struct bin_tree *new_node)
 {
+	struct bin_tree *retval;
 
+	if (root->left)
+		retval = root->right = new_node;
+	else
+		retval = root->left = new_node;
+
+	return retval;
+}
+
+static struct bin_tree *get_current_node(struct bin_tree *root, 
+					 struct bin_tree *new_node, 
+					 const unsigned int parent)
+{
+	struct bin_tree *ret;
+
+	if (root->data->node_num == parent) {
+		return decide_which_node(root, new_node);
+	} else if (root->left) {
+		if ((ret = get_current_node(root->left, new_node, parent)))
+			return ret;
+	} else if (root->right) {
+		if ((ret = get_current_node(root->right, new_node, parent)))
+			return ret;
+	} else {
+		return NULL;
+	}
+}
+
+static unsigned int get_parent_i(const unsigned int i)
+{
+	return ((i-1) / 2);
 }
 
 /*
@@ -200,13 +228,14 @@ static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
          */
         errno = 0;
 
-        while ((entry = readdir_inf(dp))) {
+	for (i=0; (entry = readdir_inf(dp)); i++) {
 		if (!(new_node = alloc_bin_tree()))
-			goto err_out;
+			/*error*/;
 		if (!root)
 			current = root = new_node;
 		else
-			current = get_current_node(current, new_node);
+			current = get_current_node(root, new_node, 
+						   get_parent_i(i));
 
 		if (!(entry_path = get_entry_path(dir_path, entry->d_name)))
 			goto err_out;
@@ -224,7 +253,7 @@ static struct bin_tree *get_dirs_content(const char *path)
                 root = _get_dirs_content(dp, path);
                 
                 if (closedir_inf(dp) && root)
-                        free_bin_tree(root, free_fdata);
+                        free_bin_tree(root);
         }
         return root;
 }
