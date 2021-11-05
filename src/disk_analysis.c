@@ -7,7 +7,6 @@
 ---------------------------------------------------------
 */
 
-
 /*
  * Defining _GNU_SOURCE macro since it achives all the desired
  * feature test macro requirements, which are:
@@ -19,61 +18,15 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include "informative.h" 
 #include "disk_analysis.h"
 
-
-static inline void *alloc_stat()
-{
-        return malloc_inf(sizeof(struct stat));
-}
 
 static inline void free_and_null(void **ptr)
 {
         free(*ptr);
         *ptr = NULL;
-}
-
-static void *alloc_bin_tree()
-{
-        struct bin_tree *node;
-
-        if ((node = malloc_inf(sizeof(struct bin_tree)))) {
-                /* 
-                 * I decided to NULL the left and right child here
-                 * so I don't mistakely forget to do that in further 
-                 * functions
-                 */
-                node->left = NULL;
-                node->right = NULL;
-        }
-        return node;
-}
-
-static inline void free_fdata_fields(struct fdata *ptr)
-{
-	if (ptr->fstatus)
-		free(ptr->fstatus);
-
-	free(ptr->fpath);
-	free(ptr->fname);
-}
-
-static void free_fdata(struct fdata *ptr)
-{
-	free_fdata_fields(ptr);
-	free(ptr);
-}
-
-static void free_bin_tree(struct bin_tree *root)
-{
-        if (root->left)
-                free_bin_tree(root->left);
-        if (root->right)
-                free_bin_tree(root->right);
-	
-	free_fdata(root->data);
-	free(root);
 }
 
 static char *get_entry_path(const char *dir_path, const char *entry_name)
@@ -90,11 +43,6 @@ static char *get_entry_path(const char *dir_path, const char *entry_name)
 	return entry_path;
 }
 
-static inline void *alloc_fdata()
-{
-        return malloc_inf(sizeof(struct fdata));
-}
-
 /*
  * The fucntion uses stat() to get files status but it 
  * will not consider permission denied (EACCES) error as a failure.
@@ -109,62 +57,37 @@ static int stat_custom_fail(const char *path, struct stat *statbuf)
         return retval;
 }
 
-static inline void insert_rem_fdata_fields(struct fdata *data, unsigned int i,
-					   const char *name, size_t name_len,
-				           const char *path, size_t path_len)
+/*
+ * Insert the remaining fdata fields that werent inserted
+ */
+static inline void insert_fdata_fields(struct fdata *ptr, const char *name, 
+				       size_t name_len, const char *path, 
+				       size_t path_len)
 {
-	data->node_num = i;
-	memcpy(data->fname, name, name_len);
-	memcpy(data->fpath, path, path_len);
+	memcpy(ptr->fname, name, name_len);
+	memcpy(ptr->fpath, path, path_len);
 }
 
-static int alloc_fdata_fields(struct fdata *ptr, size_t name_len, size_t path_len)
-{	
-	if (!(ptr->fname = malloc_inf(name_len)))
-		goto err_out;
-	if (!(ptr->fpath = malloc_inf(path_len)))
-		goto err_free_fname;
-	if (!(ptr->fstatus = alloc_stat())) 
-		goto err_free_fpath;
-
-	return 0;
-
-err_free_fpath:
-	free(ptr->fpath);
-err_free_fname:
-	free(ptr->fname);
-err_out:
-	return -1;
-
-}
-
-static struct fdata *get_fdata(const char *path, 
-			       const char *entry_name, 
-			       unsigned int i)
+static struct fdata *get_fdata(const char *path, const char *entry_name)
 {
         const size_t name_len = strlen(entry_name) + 1;
         const size_t path_len = strlen(path) + 1;
         struct fdata *data;
 	int ret;
 
-        if ((data = alloc_fdata())) {
-		if (alloc_fdata_fields(data, name_len, path_len))
-			goto err_free_fdata;
+        if ((data = alloc_fdata(name_len, path_len))) {
 		if ((ret = stat_custom_fail(path, data->fstatus))) {
 			if (ret == -1)
-				goto err_free_fdata_fields;
+				goto err_free_fdata;
 			
 			free_and_null((void **) &data->fstatus);
 		}
-		insert_rem_fdata_fields(data, i, entry_name, 
-				        name_len, path, path_len);
+		insert_fdata_fields(data, entry_name, name_len, path, path_len);
 	}
         return data;
 
-err_free_fdata_fields:
-	free_fdata_fields(data);
 err_free_fdata:
-	free(data);
+	free_fdata(data);
 	
 	return NULL;
 }
@@ -199,14 +122,19 @@ static struct bin_tree *get_current_node(struct bin_tree *root,
 	} else if (root->right) {
 		if ((ret = get_current_node(root->right, new_node, parent)))
 			return ret;
-	} else {
-		return NULL;
 	}
+	return NULL;
 }
 
-static unsigned int get_parent_i(const unsigned int i)
+static inline unsigned int get_parent_i(const unsigned int i)
 {
 	return ((i-1) / 2);
+}
+
+static inline bool is_dot_entry(const char *entry_name)
+{
+	return (strcmp(entry_name, ".") == 0 ||
+		strcmp(entry_name, "..") == 0);
 }
 
 /*
@@ -214,14 +142,14 @@ static unsigned int get_parent_i(const unsigned int i)
  */
 static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
 {
-        struct bin_tree *new_node;
-        struct bin_tree *current;
-        struct bin_tree *root;
         struct dirent *entry;
+        struct list *new_node;
+        struct list *current;
+        struct list *head;
 	char *entry_path;
 	unsigned int i;
         
-	root = NULL;
+	head = NULL;
 	/* 
          * Reset errno to 0 to distnguish between 
          * error and end of directory in readdir_inf() 
@@ -229,31 +157,44 @@ static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
         errno = 0;
 
 	for (i=0; (entry = readdir_inf(dp)); i++) {
-		if (!(new_node = alloc_bin_tree()))
-			/*error*/;
-		if (!root)
-			current = root = new_node;
+		if (is_dot_entry(entry->d_name))
+			continue;
+		if (!(new_node = alloc_list()))
+			goto err_free_list;
+		if (!head)
+			current = head = new_node;
 		else
-			current = get_current_node(root, new_node, 
-						   get_parent_i(i));
-
+			current = current->next = new_node;
 		if (!(entry_path = get_entry_path(dir_path, entry->d_name)))
-			goto err_out;
+			goto err_free_list;
 		if (!(current->data = get_fdata(entry_path, entry->d_name, i)))
-			goto err_out;
+			goto err_free_entry_path;
+		free(entry_path);
 	}
+	if (errno && head)
+		goto err_free_list;
+
+	return head;
+
+err_free_entry_path:
+	free(entry_path);
+err_free_list:
+	free_list(head);
+
+	return NULL;
 }
 
-static struct bin_tree *get_dirs_content(const char *path)
+struct list *get_dirs_content(const char *path)
 {
-        struct bin_tree *root = NULL;
+        struct list *head;
         DIR *dp;
 
+	head = NULL;
         if ((dp = opendir_inf(path))) {
-                root = _get_dirs_content(dp, path);
+                head = _get_dirs_content(dp, path);
                 
-                if (closedir_inf(dp) && root)
-                        free_bin_tree(root);
+                if (closedir_inf(dp) && head)
+                        free_list(head);
         }
-        return root;
+        return head;
 }
