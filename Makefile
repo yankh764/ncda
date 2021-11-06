@@ -1,7 +1,7 @@
 CC = gcc
-CFLAGS = -march=native -O2 -pipe -fstack-protector-strong -Wall -Wextra \
+CFLAGS = -march=native -O2 -pipe -fstack-protector-strong -std=gnu90 -Wall -Wextra \
 		 -Wundef -Wformat=2 -Wstrict-overflow=5 -Winline -I$(INCLUDE)
-LDFLAGS = -ltinfo
+LDFLAGS = -ltinfo -lncurses
 
 DST_DIR = /usr/local/bin
 

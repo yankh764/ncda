@@ -61,11 +61,10 @@ static int stat_custom_fail(const char *path, struct stat *statbuf)
  * Insert the remaining fdata fields that werent inserted
  */
 static inline void insert_fdata_fields(struct fdata *ptr, const char *name, 
-				       size_t name_len, const char *path, 
-				       size_t path_len)
+				       size_t nlen, const char *path, size_t plen)
 {
-	memcpy(ptr->fname, name, name_len);
-	memcpy(ptr->fpath, path, path_len);
+	memcpy(ptr->fname, name, nlen);
+	memcpy(ptr->fpath, path, plen);
 }
 
 static struct fdata *get_fdata(const char *path, const char *entry_name)
@@ -94,7 +93,7 @@ err_free_fdata:
 
 /*
  * Decide which node between root->left or root->right
- */
+ *
 static struct bin_tree *decide_which_node(struct bin_tree *root, 
 					  struct bin_tree *new_node)
 {
@@ -107,6 +106,7 @@ static struct bin_tree *decide_which_node(struct bin_tree *root,
 
 	return retval;
 }
+
 
 static struct bin_tree *get_current_node(struct bin_tree *root, 
 					 struct bin_tree *new_node, 
@@ -130,6 +130,13 @@ static inline unsigned int get_parent_i(const unsigned int i)
 {
 	return ((i-1) / 2);
 }
+*/
+
+static inline void free_and_null_list(struct list **head)
+{
+	free_list(*head);
+	*head = NULL;
+}
 
 static inline bool is_dot_entry(const char *entry_name)
 {
@@ -140,14 +147,13 @@ static inline bool is_dot_entry(const char *entry_name)
 /*
  * A helper function for get_dirs_content()
  */
-static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
+static struct list *_get_dirs_content(DIR *dp, const char *dir_path)
 {
         struct dirent *entry;
         struct list *new_node;
         struct list *current;
         struct list *head;
 	char *entry_path;
-	unsigned int i;
         
 	head = NULL;
 	/* 
@@ -156,7 +162,7 @@ static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
          */
         errno = 0;
 
-	for (i=0; (entry = readdir_inf(dp)); i++) {
+	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
 		if (!(new_node = alloc_list()))
@@ -167,11 +173,11 @@ static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
 			current = current->next = new_node;
 		if (!(entry_path = get_entry_path(dir_path, entry->d_name)))
 			goto err_free_list;
-		if (!(current->data = get_fdata(entry_path, entry->d_name, i)))
+		if (!(current->data = get_fdata(entry_path, entry->d_name)))
 			goto err_free_entry_path;
 		free(entry_path);
 	}
-	if (errno && head)
+	if (errno)
 		goto err_free_list;
 
 	return head;
@@ -179,7 +185,8 @@ static struct bin_tree *_get_dirs_content(DIR *dp, const char *dir_path)
 err_free_entry_path:
 	free(entry_path);
 err_free_list:
-	free_list(head);
+	if (head)
+		free_list(head);
 
 	return NULL;
 }
@@ -194,7 +201,7 @@ struct list *get_dirs_content(const char *path)
                 head = _get_dirs_content(dp, path);
                 
                 if (closedir_inf(dp) && head)
-                        free_list(head);
+                        free_and_null_list(&head);
         }
         return head;
 }

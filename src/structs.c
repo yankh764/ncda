@@ -1,10 +1,10 @@
 /*
----------------------------------------------------------
-| License: GNU GPL-3.0                                  |
----------------------------------------------------------
-| This source file contains all the necessary functions |
-| for managing the structures of the ncda prgoram.      |
----------------------------------------------------------
+----------------------------------------------------------
+| License: GNU GPL-3.0                                   |
+----------------------------------------------------------
+| This source file contains all the necessary components |
+| for managing the structures of the ncda prgoram.       |
+----------------------------------------------------------
 */
 
 #include <stdlib.h>
@@ -17,40 +17,6 @@ void *alloc_stat()
         return malloc_inf(sizeof(struct stat));
 }
 
-void *alloc_bin_tree()
-{
-        struct bin_tree *node;
-
-        if ((node = malloc_inf(sizeof(struct bin_tree)))) {
-                /* 
-                 * I decided to NULL the left and right child here
-                 * so I don't mistakely forget to do that in further 
-                 * functions
-                 */
-                node->left = NULL;
-                node->right = NULL;
-        }
-        return node;
-}
-
-void *alloc_list()
-{
-	struct list *retval;
-
-	if ((retval = malloc_inf(sizeof(struct list))))
-		retval->next = NULL;
-
-	return retval;
-}
-
-void free_list(struct list *node)
-{
-	if (node->next)
-		free_list(node->next);
-	free_fdata(node->data);
-	free(node);
-}
-
 void free_fdata(struct fdata *ptr)
 {
 	if (ptr->fstatus)
@@ -58,16 +24,6 @@ void free_fdata(struct fdata *ptr)
 	free(ptr->fpath);
 	free(ptr->fname);
 	free(ptr);
-}
-
-void free_bin_tree(struct bin_tree *root)
-{
-        if (root->left)
-                free_bin_tree(root->left);
-        if (root->right)
-                free_bin_tree(root->right);
-	free_fdata(root->data);
-	free(root);
 }
 
 void *alloc_fdata(size_t name_len, size_t path_len)
@@ -92,4 +48,52 @@ err_free_fdata:
 	free(retval);
 
 	return NULL;
+}
+
+void *alloc_bin_tree()
+{
+        struct bin_tree *node;
+
+        if ((node = malloc_inf(sizeof(struct bin_tree)))) {
+                /* 
+                 * I decided to NULL the left and right child here
+                 * so I don't mistakely forget to do that in further 
+                 * functions
+                 */
+                node->left = NULL;
+                node->right = NULL;
+        }
+        return node;
+}
+
+void free_bin_tree(struct bin_tree *root)
+{
+        if (root->left)
+                free_bin_tree(root->left);
+        if (root->right)
+                free_bin_tree(root->right);
+	free_fdata(root->data);
+	free(root);
+}
+
+void *alloc_list()
+{
+	struct list *retval;
+
+	if ((retval = malloc_inf(sizeof(struct list))))
+		/* 
+		 * NULL next now so I don't 
+		 * forget to do that later 
+		 */
+		retval->next = NULL;
+
+	return retval;
+}
+
+void free_list(struct list *node)
+{
+	if (node->next)
+		free_list(node->next);
+	free_fdata(node->data);
+	free(node);
 }
