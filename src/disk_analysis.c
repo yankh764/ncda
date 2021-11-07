@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include "curses.h"
 #include "informative.h" 
 #include "disk_analysis.h"
 
@@ -29,18 +30,44 @@ static inline void free_and_null(void **ptr)
         *ptr = NULL;
 }
 
-static char *get_entry_path(const char *dir_path, const char *entry_name)
+static char *_get_entry_path_slash(const char *entry_name)
 {
-        char *entry_path;
-        size_t len;
+	char *entry_path;
+	size_t len;
 
-	/* The 2 stands for a slash and a null byte */
+	len = strlen(entry_name) + 2;
+
+	if ((entry_path = malloc_inf(len)))
+		snprintf(entry_path, len, "/%s", entry_name);
+	
+	return entry_path;
+}
+
+static char *_get_entry_path_not_slash(const char *dir_path, 
+				       const char *entry_name)
+{
+	char *entry_path;
+        size_t len;
+	
 	len = strlen(dir_path) + strlen(entry_name) + 2;
         
 	if ((entry_path = malloc_inf(len)))
                 snprintf(entry_path, len, "%s/%s", dir_path, entry_name);
         
 	return entry_path;
+}
+
+static inline int is_slash(const char *dir_path)
+{
+	return (strcmp(dir_path, "/") == 0);
+}
+
+static char *get_entry_path(const char *dir_path, const char *entry_name)
+{
+        if (is_slash(dir_path))
+		return _get_entry_path_slash(entry_name);
+	else
+		return _get_entry_path_not_slash(dir_path, entry_name);
 }
 
 /*
@@ -61,7 +88,8 @@ static int stat_custom_fail(const char *path, struct stat *statbuf)
  * Insert the remaining fdata fields that werent inserted
  */
 static inline void insert_fdata_fields(struct fdata *ptr, const char *name, 
-				       size_t nlen, const char *path, size_t plen)
+				       size_t nlen, const char *path, 
+				       size_t plen)
 {
 	memcpy(ptr->fname, name, nlen);
 	memcpy(ptr->fpath, path, plen);
