@@ -34,6 +34,6 @@ int nc_display_fpath(struct list *const head)
 
 int nc_init_setup()
 {
-	return (cbreak() || keypad(stdscr, TRUE) || 
-		noecho() || attron(A_BOLD));
+	return (start_color() || cbreak() || keypad(stdscr, TRUE) || 
+		noecho() || attrset(A_BOLD));
 }
