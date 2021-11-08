@@ -14,12 +14,18 @@ SRCS := $(shell find $(SRCDIR) -iname "*.c")
 OBJS := $(SRCS:%=$(OBJDIR)/%.o)
 
 
-$(OBJDIR)/%.c.o: %.c 
-	mkdir -p $(dir $@) 
-	$(CC) $(CFLAGS) -c $< -o $@
+#$(BIN): $(OBJS)
+#	$(CC) $(OBJS) -o ./$@ $(LDFLAGS)
+#
+#$(OBJDIR)/%.c.o: %.c 
+#	mkdir -p $(dir $@) 
+#	$(CC) $(CFLAGS) -c $< -o $@
 
 
-.PHONY: test
+.PHONY: test clean
 
-test: $(OBJS)
-	$(CC) $(OBJS) -o ./$@ $(LDFLAGS)
+test: 
+	$(CC) $(CFLAGS) -ggdb $(SRCDIR)/* test.c $(LDFLAGS)
+
+#clean:
+#	$(RM) -r $(OBJDIR)
