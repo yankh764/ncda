@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include "informative.h"
 
+
 void *malloc_inf(size_t size)
 {
         void *retval;

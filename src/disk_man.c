@@ -3,7 +3,7 @@
 | License: GNU GPL-3.0                                  |
 ---------------------------------------------------------
 | This source file contains all the necessary functions |
-| for the disk analysis.                                |
+| for the disk management.                              |
 ---------------------------------------------------------
 */
 
@@ -11,7 +11,7 @@
  * Defining _GNU_SOURCE macro since it achives all the desired
  * feature test macro requirements, which are:
  *     1) _XOPEN_SOURCE >= 500 || _ISOC99_SOURCE for snprintf()
- *     2) _DEFAULT_SOURCE || _BSD_SOURCE for d_type field in struct dirent
+ *     2) _DEFAULT_SOURCE || _BSD_SOURCE for file type and mode macros
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -19,9 +19,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include "curses.h"
 #include "informative.h" 
-#include "disk_analysis.h"
+#include "curses.h"
+#include "disk_man.h"
 
 
 static inline void free_and_null(void **ptr)
@@ -232,4 +232,22 @@ struct list *get_dirs_content(const char *path)
                         free_and_null_list(&head);
         }
         return head;
+}
+
+static int rm_file(const char *path)
+{
+
+}
+
+static int rm_dir(const char *path)
+{
+
+}
+
+int rm_entry(struct fdata *const data)
+{
+	if (S_ISDIR(data->fstatus->st_mode))
+		return rm_dir(data->fpath);
+	else
+		return rm_file(data->fpath);
 }

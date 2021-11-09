@@ -50,16 +50,17 @@ err_free_fdata:
 	return NULL;
 }
 
+/*
 void *alloc_bin_tree()
 {
         struct bin_tree *node;
 
         if ((node = malloc_inf(sizeof(struct bin_tree)))) {
-                /* 
+                * 
                  * I decided to NULL the left and right child here
                  * so I don't mistakely forget to do that in further 
                  * functions
-                 */
+                 *
                 node->left = NULL;
                 node->right = NULL;
         }
@@ -75,6 +76,7 @@ void free_bin_tree(struct bin_tree *root)
 	free_fdata(root->data);
 	free(root);
 }
+*/
 
 void *alloc_list()
 {
