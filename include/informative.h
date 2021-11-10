@@ -10,5 +10,7 @@ int stat_inf(const char *, struct stat *);
 DIR *opendir_inf(const char *);
 int closedir_inf(DIR *);
 struct dirent *readdir_inf(DIR *);
+int unlink_inf(const char *);
+int rmdir_inf(const char *);
 
 #endif

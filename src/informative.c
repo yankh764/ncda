@@ -11,6 +11,7 @@
 #include <error.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "informative.h"
 
 
@@ -62,4 +63,24 @@ struct dirent *readdir_inf(DIR *dp)
                 error(0, errno, "could not read directory's entries");
 
         return retval;
-} 
+}
+
+int unlink_inf(const char *pathname)
+{
+	int retval;
+
+	if ((retval = unlink(pathname)))
+		error(0, errno, "could not remove '%s'", pathname);
+	
+	return retval;
+}
+
+int rmdir_inf(const char *pathname)
+{
+	int retval;
+
+	if ((retval = rmdir(pathname)))
+		error(0, errno, "could not remove '%s'", pathname);
+
+	return retval;
+}

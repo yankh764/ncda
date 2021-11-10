@@ -24,6 +24,10 @@
 #include "disk_man.h"
 
 
+/* Necessary static functions prototype */
+static int rmdir_r(const char *);
+
+
 static inline void free_and_null(void **ptr)
 {
         free(*ptr);
@@ -234,20 +238,73 @@ struct list *get_dirs_content(const char *path)
         return head;
 }
 
-static int rm_file(const char *path)
+static inline int rm_file(const char *path)
 {
-
+	return unlink_inf(path);
 }
 
-static int rm_dir(const char *path)
+static int delete_entry(const char *entry_path)
 {
+	struct stat statbuf;
 
+	if (stat_inf(entry_path, &statbuf)) 
+		return -1;
+	if (S_ISDIR(statbuf.st_mode))
+		return rmdir_r(entry_path);
+	else
+		return rm_file(entry_path);
+}
+
+static int _rmdir_r(DIR *dp, const char *path)
+{
+	struct dirent *entry;
+	char *entry_path;
+	
+	/* 
+	 * Reset errno to 0 to distnguish between 
+	 * error and end of directory in readdir_inf() 
+	 */
+	errno = 0;
+	
+	while ((entry = readdir_inf(dp))) {
+		if (is_dot_entry(entry->d_name))
+			continue;
+		if (!(entry_path = get_entry_path(path, entry->d_name)))
+			break;
+		if (delete_entry(entry_path))
+			goto err_free_entry_path;
+		free(entry_path);
+	}
+	return errno ? -1 : 0;
+
+err_free_entry_path:
+	free(entry_path);
+
+	return -1;
+}
+
+/*
+ * Remove directory and it's content (recursively)
+ */
+static int rmdir_r(const char *path)
+{
+	int retval;
+	DIR *dp;
+
+	retval = -1;
+	if ((dp = opendir_inf(path))) {
+		if(!(retval = _rmdir_r(dp, path)))
+			retval = rmdir_inf(path);
+		if (closedir_inf(dp))
+			retval = -1;
+	}
+	return retval;
 }
 
 int rm_entry(struct fdata *const data)
 {
 	if (S_ISDIR(data->fstatus->st_mode))
-		return rm_dir(data->fpath);
+		return rmdir_r(data->fpath);
 	else
 		return rm_file(data->fpath);
 }
