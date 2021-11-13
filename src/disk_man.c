@@ -25,7 +25,7 @@
 
 
 /* Necessary static functions prototype */
-static int rmdir_r(const char *);
+static int rm_dir_r(const char *);
 
 
 static inline void free_and_null(void **ptr)
@@ -43,7 +43,6 @@ static char *_get_entry_path_slash(const char *entry_name)
 
 	if ((entry_path = malloc_inf(len)))
 		snprintf(entry_path, len, "/%s", entry_name);
-	
 	return entry_path;
 }
 
@@ -57,11 +56,10 @@ static char *_get_entry_path_not_slash(const char *dir_path,
         
 	if ((entry_path = malloc_inf(len)))
                 snprintf(entry_path, len, "%s/%s", dir_path, entry_name);
-        
 	return entry_path;
 }
 
-static inline int is_slash(const char *dir_path)
+static inline bool is_slash(const char *dir_path)
 {
 	return (strcmp(dir_path, "/") == 0);
 }
@@ -92,8 +90,7 @@ static int stat_custom_fail(const char *path, struct stat *statbuf)
  * Insert the remaining fdata fields that werent inserted
  */
 static inline void insert_fdata_fields(struct fdata *ptr, const char *name, 
-				       size_t nlen, const char *path, 
-				       size_t plen)
+				       size_t nlen, const char *path, size_t plen)
 {
 	memcpy(ptr->fname, name, nlen);
 	memcpy(ptr->fpath, path, plen);
@@ -110,7 +107,6 @@ static struct fdata *get_fdata(const char *path, const char *entry_name)
 		if ((ret = stat_custom_fail(path, data->fstatus))) {
 			if (ret == -1)
 				goto err_free_fdata;
-			
 			free_and_null((void **) &data->fstatus);
 		}
 		insert_fdata_fields(data, entry_name, name_len, path, path_len);
@@ -176,6 +172,19 @@ static inline bool is_dot_entry(const char *entry_name)
 		strcmp(entry_name, "..") == 0);
 }
 
+static struct fdata *get_list_data(const char *dir_path, const char *entry_name)
+{
+	struct fdata *retval;
+	char *entry_path;
+	
+	retval = NULL;
+	if ((entry_path = get_entry_path(dir_path, entry_name))) {
+		retval = get_fdata(entry_path, entry_name);
+		free(entry_path);
+	}
+	return retval;
+}
+
 /*
  * A helper function for get_dirs_content()
  */
@@ -185,7 +194,6 @@ static struct list *_get_dirs_content(DIR *dp, const char *dir_path)
         struct list *new_node;
         struct list *current;
         struct list *head;
-	char *entry_path;
         
 	head = NULL;
 	/* 
@@ -193,7 +201,6 @@ static struct list *_get_dirs_content(DIR *dp, const char *dir_path)
          * error and end of directory in readdir_inf() 
          */
         errno = 0;
-
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
@@ -203,19 +210,14 @@ static struct list *_get_dirs_content(DIR *dp, const char *dir_path)
 			current = head = new_node;
 		else
 			current = current->next = new_node;
-		if (!(entry_path = get_entry_path(dir_path, entry->d_name)))
+		if (!(current->data = get_list_data(dir_path, entry->d_name)))
 			goto err_free_list;
-		if (!(current->data = get_fdata(entry_path, entry->d_name)))
-			goto err_free_entry_path;
-		free(entry_path);
 	}
 	if (errno)
 		goto err_free_list;
 
 	return head;
 
-err_free_entry_path:
-	free(entry_path);
 err_free_list:
 	if (head)
 		free_list(head);
@@ -250,50 +252,55 @@ static int delete_entry(const char *entry_path)
 	if (stat_inf(entry_path, &statbuf)) 
 		return -1;
 	if (S_ISDIR(statbuf.st_mode))
-		return rmdir_r(entry_path);
+		return rm_dir_r(entry_path);
 	else
 		return rm_file(entry_path);
 }
 
-static int _rmdir_r(DIR *dp, const char *path)
+static int rm_dir_r_delete_entry(const char *dir_path, const char *entry_name)
+{
+	char *entry_path;	
+	int retval;
+	
+	retval = -1;
+	
+	if ((entry_path = get_entry_path(dir_path, entry_name))) {
+		retval = delete_entry(entry_path);
+		free(entry_path);
+	}
+	return retval;
+}
+
+static int _rm_dir_r(DIR *dp, const char *path)
 {
 	struct dirent *entry;
-	char *entry_path;
 	
 	/* 
 	 * Reset errno to 0 to distnguish between 
 	 * error and end of directory in readdir_inf() 
 	 */
 	errno = 0;
-	
+
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
-		if (!(entry_path = get_entry_path(path, entry->d_name)))
+		if (rm_dir_r_delete_entry(path, entry->d_name))
 			break;
-		if (delete_entry(entry_path))
-			goto err_free_entry_path;
-		free(entry_path);
 	}
 	return errno ? -1 : 0;
-
-err_free_entry_path:
-	free(entry_path);
-
-	return -1;
 }
 
 /*
  * Remove directory and it's content (recursively)
  */
-static int rmdir_r(const char *path)
+static int rm_dir_r(const char *path)
 {
 	int retval;
 	DIR *dp;
 
 	retval = -1;
 	if ((dp = opendir_inf(path))) {
-		if(!(retval = _rmdir_r(dp, path)))
+		if(!(retval = _rm_dir_r(dp, path)))
 			retval = rmdir_inf(path);
 		if (closedir_inf(dp))
 			retval = -1;
@@ -304,7 +311,7 @@ static int rmdir_r(const char *path)
 int rm_entry(struct fdata *const data)
 {
 	if (S_ISDIR(data->fstatus->st_mode))
-		return rmdir_r(data->fpath);
+		return rm_dir_r(data->fpath);
 	else
 		return rm_file(data->fpath);
 }
