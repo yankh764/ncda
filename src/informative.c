@@ -25,11 +25,11 @@ void *malloc_inf(size_t size)
         return retval;
 }
 
-int stat_inf(const char *path, struct stat *statbuf)
+int lstat_inf(const char *path, struct stat *statbuf)
 {
         int retval;
 
-        if ((retval = stat(path, statbuf)))
+        if ((retval = lstat(path, statbuf)))
                 error(0, errno, "could not get status on '%s'", path);
 
         return retval;

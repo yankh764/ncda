@@ -10,7 +10,7 @@
 /*
  * Defining _GNU_SOURCE macro since it achives all the desired
  * feature test macro requirements, which are:
- *     1) _XOPEN_SOURCE >= 500 || _ISOC99_SOURCE for snprintf()
+ *     1) _XOPEN_SOURCE >= 500 || _ISOC99_SOURCE for snprintf() and lstat()
  *     2) _DEFAULT_SOURCE || _BSD_SOURCE for file type and mode macros
  */
 #define _GNU_SOURCE
@@ -73,14 +73,14 @@ static char *get_entry_path(const char *dir_path, const char *entry_name)
 }
 
 /*
- * The fucntion uses stat() to get files status but it 
+ * The fucntion uses lstat() to get files status but it 
  * will not consider permission denied (EACCES) error as a failure.
  */
-static int stat_custom_fail(const char *path, struct stat *statbuf)
+static int lstat_custom_fail(const char *path, struct stat *statbuf)
 {
         int retval;
 
-        if ((retval = stat_inf(path, statbuf)))
+        if ((retval = lstat_inf(path, statbuf)))
                 if (errno == EACCES)
                         retval = EACCES;
         return retval;
@@ -104,7 +104,7 @@ static struct fdata *get_fdata(const char *path, const char *entry_name)
 	int ret;
 
         if ((data = alloc_fdata(name_len, path_len))) {
-		if ((ret = stat_custom_fail(path, data->fstatus))) {
+		if ((ret = lstat_custom_fail(path, data->fstatus))) {
 			if (ret == -1)
 				goto err_free_fdata;
 			free_and_null((void **) &data->fstatus);
@@ -249,7 +249,7 @@ static int delete_entry(const char *entry_path)
 {
 	struct stat statbuf;
 
-	if (stat_inf(entry_path, &statbuf)) 
+	if (lstat_inf(entry_path, &statbuf)) 
 		return -1;
 	if (S_ISDIR(statbuf.st_mode))
 		return rm_dir_r(entry_path);

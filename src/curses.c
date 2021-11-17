@@ -7,15 +7,28 @@
 ---------------------------------------------------------
 */
 
+#include <stdbool.h>
 #include "curses.h"
+
+#define IS_EXEC(file_mode)	      (file_mode & S_IXUSR || \
+				       file_mode & S_IXGRP || \
+				       file_mode & S_IXOTH)
+
+#define SHLD_BE_BLUE(file_mode)	       S_ISDIR(file_mode)
+#define SHLD_BE_CYAN(file_mode)	       S_ISLNK(file_mode)
+#define SHLD_BE_MAGENTA(file_mode)     S_ISSOCK(file_mode)
+#define SHLD_BE_GREEN(file_mode)       S_ISREG(file_mode) && IS_EXEC(file_mode)
+#define SHLD_BE_YELLOW(file_mode)     (S_ISCHR(file_mode) || \
+				       S_ISBLK(file_mode) || \
+				       S_ISFIFO(file_mode))
 
 
 enum COLOR_PAIRS_NUM {
 	BLUE_PAIR =  1,
 	GREEN_PAIR = 2, 
 	YELLOW_PAIR = 3,
-	RED_PAIR = 4,
-	CYAN_PAIR = 5,
+	CYAN_PAIR = 4,
+	MAGENTA_PAIR = 5,
 	DEFAULT_PAIR = 6
 };
 
@@ -31,21 +44,18 @@ static int display_fname_no_color(WINDOW *wp, struct list *const head)
 	return retval;
 }
 
-static short get_reg_file_color_pair(struct stat *const statbuf)
-{
-	/* USE lstat() INSTEAD OF stat()*/
-}
-
 static short get_color_pair_num(struct stat *const statbuf)
 {
-	if (S_ISREG(statbuf->st_mode))
-		return get_reg_file_color_pair(statbuf);
-	else if (S_ISLNK(statbuf->st_mode))
-		return CYAN_PAIR;
-	else if (S_ISDIR(statbuf->st_mode))
+	if (SHLD_BE_BLUE(statbuf->st_mode))
 		return BLUE_PAIR;
-	else if (S_ISCHR(statbuf->st_mode) || S_ISBLK(statbuf->st_mode))
+	else if (SHLD_BE_GREEN(statbuf->st_mode))
+		return GREEN_PAIR;
+	else if (SHLD_BE_CYAN(statbuf->st_mode))
+		return CYAN_PAIR;
+	else if (SHLD_BE_YELLOW(statbuf->st_mode)) 
 		return YELLOW_PAIR;
+	else if (SHLD_BE_MAGENTA(statbuf->st_mode))
+		return MAGENTA_PAIR;
 	else
 		return DEFAULT_PAIR;
 }
@@ -78,11 +88,10 @@ static int display_fname_color(WINDOW *wp, struct list *const head)
 
 int nc_display_fname(WINDOW *wp, struct list *const head) 
 {
-	if (__COLORED_OUTPUT)
+	if (COLORED_OUTPUT)
 		return display_fname_color(wp, head);
 	else
 		return display_fname_no_color(wp, head);
-
 }
 
 static int display_fpath_no_color(WINDOW *wp, struct list *const head)
@@ -98,27 +107,39 @@ static int display_fpath_no_color(WINDOW *wp, struct list *const head)
 
 static int display_fpath_color(WINDOW *wp, struct list *const head)
 {
+	struct list *current;
 
+	for (current=head; current; current=current->next) {
+		if (attron_proper_color(wp, current->data->fstatus))
+			return -1;
+		if (wprintw(wp, "%s\n", current->data->fpath))
+			return -1;
+	}
+	/* Reset the colors */
+	return wattron(wp, COLOR_PAIR(DEFAULT_PAIR));
 }
 
 int nc_display_fpath(WINDOW *wp, struct list *const head)
 {
-
+	if (COLORED_OUTPUT)
+		return display_fpath_color(wp, head);
+	else
+		return display_fpath_no_color(wp, head);
 }
 
 static inline int init_color_pairs()
 {
-	return (init_pair(BLUE_PAIR,   COLOR_BLUE,   -1) ||
-		init_pair(GREEN_PAIR,  COLOR_GREEN,  -1) || 
-		init_pair(YELLOW_PAIR, COLOR_YELLOW, -1) ||
-		init_pair(RED_PAIR,    COLOR_RED,    -1) || 
-		init_pair(CYAN_PAIR,   COLOR_CYAN,   -1) ||
-		init_pair(DEFAULT_PAIR,        -1,   -1));
+	return (init_pair(BLUE_PAIR,    COLOR_BLUE,    -1) ||
+		init_pair(GREEN_PAIR,   COLOR_GREEN,   -1) || 
+		init_pair(YELLOW_PAIR,  COLOR_YELLOW,  -1) ||
+		init_pair(CYAN_PAIR,    COLOR_CYAN,    -1) ||
+		init_pair(MAGENTA_PAIR, COLOR_MAGENTA, -1) ||
+		init_pair(DEFAULT_PAIR, -1,            -1));
 }
 
 static inline int start_color_if_supported()
 {
-	if (has_colors())
+	if ((COLORED_OUTPUT = has_colors()))
 		return (use_default_colors() ||
 			start_color()        || 
 			init_color_pairs());
