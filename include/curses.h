@@ -10,5 +10,6 @@ int nc_display_fname(WINDOW *, struct list *const);
 int nc_display_fpath(WINDOW *, struct list *const);
 int nc_init_setup();
 WINDOW *nc_newwin(int, int, int, int);
+void nc_insert_proper_color_pair(struct list *);
 
 #endif

@@ -87,7 +87,8 @@ static int lstat_custom_fail(const char *path, struct stat *statbuf)
 }
 
 /*
- * Insert the remaining fdata fields that werent inserted
+ * Insert the remaining fdata fields that werent inserted (except the 
+ * fcolor_pair field which will be inserted in curses.c file).
  */
 static inline void insert_fdata_fields(struct fdata *ptr, const char *name, 
 				       size_t nlen, const char *path, size_t plen)

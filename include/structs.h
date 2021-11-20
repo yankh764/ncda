@@ -7,6 +7,7 @@
 struct fdata {
         char *fname;
         char *fpath;
+	short fcolor_pair;
         struct stat *fstatus;
 };
 
