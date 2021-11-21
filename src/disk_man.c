@@ -20,7 +20,6 @@
 #include <string.h>
 #include <stdbool.h>
 #include "informative.h" 
-#include "curses.h"
 #include "disk_man.h"
 
 
@@ -34,6 +33,9 @@ static inline void free_and_null(void **ptr)
         *ptr = NULL;
 }
 
+/*
+ * Get entry's path in the case of dir_path being just a slash
+ */
 static char *_get_entry_path_slash(const char *entry_name)
 {
 	char *entry_path;
@@ -46,6 +48,10 @@ static char *_get_entry_path_slash(const char *entry_name)
 	return entry_path;
 }
 
+/*
+ * Get entry's path in the case of dir_path being just a regular
+ * path and not just slash (contrast to _get_entry_path_slash())
+ */
 static char *_get_entry_path_not_slash(const char *dir_path, 
 				       const char *entry_name)
 {
@@ -87,8 +93,9 @@ static int lstat_custom_fail(const char *path, struct stat *statbuf)
 }
 
 /*
- * Insert the remaining fdata fields that werent inserted (except the 
- * fcolor_pair field which will be inserted in curses.c file).
+ * Insert the remaining fdata fields that weren't inserted and are available 
+ * at the moment (except the fcolor_pair field which will be inserted in 
+ * curses.c file because it isn't available).
  */
 static inline void insert_fdata_fields(struct fdata *ptr, const char *name, 
 				       size_t nlen, const char *path, size_t plen)
@@ -173,7 +180,8 @@ static inline bool is_dot_entry(const char *entry_name)
 		strcmp(entry_name, "..") == 0);
 }
 
-static struct fdata *get_list_data(const char *dir_path, const char *entry_name)
+static struct fdata *get_lists_data(const char *dir_path, 
+				    const char *entry_name)
 {
 	struct fdata *retval;
 	char *entry_path;
@@ -203,15 +211,13 @@ static struct list *_get_dirs_content(DIR *dp, const char *dir_path)
          */
         errno = 0;
 	while ((entry = readdir_inf(dp))) {
-		if (is_dot_entry(entry->d_name))
-			continue;
 		if (!(new_node = alloc_list()))
 			goto err_free_list;
 		if (!head)
 			current = head = new_node;
 		else
 			current = current->next = new_node;
-		if (!(current->data = get_list_data(dir_path, entry->d_name)))
+		if (!(current->data = get_lists_data(dir_path, entry->d_name)))
 			goto err_free_list;
 	}
 	if (errno)
@@ -222,7 +228,7 @@ static struct list *_get_dirs_content(DIR *dp, const char *dir_path)
 err_free_list:
 	if (head)
 		free_list(head);
-
+	
 	return NULL;
 }
 
@@ -301,10 +307,14 @@ static int rm_dir_r(const char *path)
 
 	retval = -1;
 	if ((dp = opendir_inf(path))) {
-		if(!(retval = _rm_dir_r(dp, path)))
-			retval = rmdir_inf(path);
+		/* Remove directory's content */
+		retval = _rm_dir_r(dp, path);
 		if (closedir_inf(dp))
 			retval = -1;
+		
+		if (!retval)
+			/* Remove the directory itself */
+			retval = rmdir_inf(path);
 	}
 	return retval;
 }

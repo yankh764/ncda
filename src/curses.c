@@ -23,7 +23,6 @@
 #define SHLD_BE_CYAN(file_mode)	       S_ISLNK(file_mode)
 #define SHLD_BE_MAGENTA(file_mode)     S_ISSOCK(file_mode)
 #define SHLD_BE_GREEN(file_mode)       S_ISREG(file_mode) && IS_EXEC(file_mode)
-
 #define SHLD_BE_YELLOW(file_mode)     (S_ISCHR(file_mode) || \
 				       S_ISBLK(file_mode) || \
 				       S_ISFIFO(file_mode))
@@ -36,47 +35,43 @@ enum COLOR_PAIRS_NUM {
 	MAGENTA_PAIR = 5,
 	DEFAULT_PAIR = 6
 };
+struct list *highligted_node; 
 
 
-static short get_color_pair_num(struct stat *const statbuf)
+static short get_color_pair_num(mode_t st_mode)
 {
-	if (SHLD_BE_BLUE(statbuf->st_mode))
+	if (SHLD_BE_BLUE(st_mode))
 		return BLUE_PAIR;
-	else if (SHLD_BE_GREEN(statbuf->st_mode))
+	else if (SHLD_BE_GREEN(st_mode))
 		return GREEN_PAIR;
-	else if (SHLD_BE_CYAN(statbuf->st_mode))
+	else if (SHLD_BE_CYAN(st_mode))
 		return CYAN_PAIR;
-	else if (SHLD_BE_YELLOW(statbuf->st_mode)) 
+	else if (SHLD_BE_YELLOW(st_mode)) 
 		return YELLOW_PAIR;
-	else if (SHLD_BE_MAGENTA(statbuf->st_mode))
+	else if (SHLD_BE_MAGENTA(st_mode))
 		return MAGENTA_PAIR;
 	else
 		return DEFAULT_PAIR;
 }
 
-static inline void insert_proper_color_pair(struct list *head)
+/*
+ * Insert proper color pair to the file data structure, then return it.
+ */
+static inline short proper_color_pair(struct fdata *data)
 {
-	struct list *current;
-
-	for (current=head; current; current=current->next)
-		current->data->fcolor_pair = current->data->fstatus ? 
-		      get_color_pair_num(current->data->fstatus) : DEFAULT_PAIR;
+	return (data->fcolor_pair = data->fstatus ? 
+				    get_color_pair_num(data->fstatus->st_mode) : 
+				    DEFAULT_PAIR);
 }
 
-static inline void insert_default_color_pair(struct list *head)
+/*
+ * Get the proper end of a string. If the file is a directory the end of
+ * the string will be slash ('/'), else the end of a string will be blank
+ * character (' ').
+ */
+static inline char proper_eos(struct stat *const statbuf)
 {
-	struct list *current;
-
-	for (current=head; current; current=current->next)
-		current->data->fcolor_pair = DEFAULT_PAIR;
-}
-
-void nc_insert_proper_color_pair(struct list *head)
-{
-	if (COLORED_OUTPUT)
-		insert_proper_color_pair(head);
-	else
-		insert_default_color_pair(head);
+	return (statbuf && S_ISDIR(statbuf->st_mode)) ? '/' : ' ';
 }
 
 static int display_fname_color(WINDOW *wp, struct list *const head)
@@ -84,9 +79,10 @@ static int display_fname_color(WINDOW *wp, struct list *const head)
 	struct list *current;
 
 	for (current=head; current; current=current->next) {
-		if (wattron(wp, COLOR_PAIR(current->data->fcolor_pair)))
+		if (wattron(wp, COLOR_PAIR(proper_color_pair(current->data))))
 			return -1;
-		if (wprintw(wp, "%s\n", current->data->fname))
+		if (wprintw(wp, "%s%c\n", current->data->fname, 
+			    proper_eos(current->data->fstatus)))
 			return -1;
 	}
 	/* Reset the colors */
@@ -99,7 +95,8 @@ static int display_fname_no_color(WINDOW *wp, struct list *const head)
 	int retval;
 
 	for (current=head; current; current=current->next)
-		if ((retval = wprintw(wp, "%s\n", current->data->fname)))
+		if ((retval = wprintw(wp, "%s%c\n", current->data->fname, 
+				      proper_eos(current->data->fstatus))))
 			break;
 	return retval;
 }
@@ -112,29 +109,36 @@ int nc_display_fname(WINDOW *wp, struct list *const head)
 		return display_fname_no_color(wp, head);
 }
 
+static int display_fpath_color(WINDOW *wp, struct list *const head)
+{
+	struct list *current;
+
+	for (current=head; current; current=current->next) {
+		/* 
+		 * This function will always be called after having the proper
+		 * color pair inserted to the fdata struct; so there's no need
+		 * in calling proper_color_pair() function one more time.
+		 */
+		if (wattron(wp, COLOR_PAIR(current->data->fcolor_pair)))
+			return -1;
+		if (wprintw(wp, "%s%c\n", current->data->fpath, 
+			    proper_eos(current->data->fstatus)))
+			return -1;
+	}
+	/* Reset the colors */
+	return wattron(wp, COLOR_PAIR(DEFAULT_PAIR));
+}
+
 static int display_fpath_no_color(WINDOW *wp, struct list *const head)
 {
 	struct list *current;
 	int retval;
 
 	for (current=head; current; current=current->next)
-		if ((retval = wprintw(wp, "%s\n", current->data->fpath)))
+		if ((retval = wprintw(wp, "%s%c\n", current->data->fpath, 
+		                      proper_eos(current->data->fstatus))))
 			break;
 	return retval;
-}
-
-static int display_fpath_color(WINDOW *wp, struct list *const head)
-{
-	struct list *current;
-
-	for (current=head; current; current=current->next) {
-		if (wattron(wp, COLOR_PAIR(current->data->fcolor_pair)))
-			return -1;
-		if (wprintw(wp, "%s\n", current->data->fpath))
-			return -1;
-	}
-	/* Reset the colors */
-	return wattron(wp, COLOR_PAIR(DEFAULT_PAIR));
 }
 
 int nc_display_fpath(WINDOW *wp, struct list *const head)
@@ -157,12 +161,9 @@ static inline int init_color_pairs()
 
 static inline int start_color_if_supported()
 {
-	if ((COLORED_OUTPUT = has_colors()))
-		return (use_default_colors() ||
-			start_color()        || 
-			init_color_pairs());
-	else 
-		return 0;
+	return (COLORED_OUTPUT = has_colors()) ? (use_default_colors() || 
+						  start_color() || 
+						  init_color_pairs()) : 0;
 }
 
 static inline int init_local_setup(WINDOW *wp)
@@ -208,29 +209,54 @@ WINDOW *nc_newwin(int lines_num, int cols_num, int begin_y, int begin_x)
 	return wp;
 }
 
-static int update_highlight_loc(WINDOW *wp, 
-				struct list *const node, 
-				int key, int y)
-{
-	return mvwchgat(wp, y, 0, -1, A_STANDOUT, DEFAULT_PAIR, NULL);
-}
-
-static inline int in_navigation_keys(int c)
+/*
+ * Check if c is in the navigation keys, and return the value of the 
+ * operation that this key does
+ */
+static int in_navigation_keys(int c)
 {
 	if (c == KEY_UP || c == 'k')
 		return KEY_UP;
 	else if (c == KEY_DOWN || c == 'j')
 		return KEY_DOWN;
-	else
+	else 
 		return 0;
 }
 
-static inline int get_updated_y(int key, int max_y, int y)
+static int get_updated_y(int key, int max_y, int y)
 {
 	if (y && key == KEY_UP)
 		y--;
 	else if (y < max_y && key == KEY_DOWN)
 		y++;
+
 	return y;
 }
 
+static int update_highlight_loc(WINDOW *wp, int key, int y)
+{
+	return mvwchgat(wp, y, 0, -1, A_STANDOUT, DEFAULT_PAIR, NULL);
+}
+
+/* 
+ * An helper function for nc_man_input()
+ */
+static int _nc_man_input(WINDOW *wp, int c)
+{
+	int key;
+
+	if ((key = in_navigation_keys(c))) {
+		if (update_highlight_loc(wp, key))
+			return -1;
+	}
+}
+
+int nc_man_input(WINDOW *wp, struct list *const )
+{
+	int c;
+
+	while ((c = wgetch(wp)) != ERR)
+		if (_nc_man_input(wp, c))
+			return -1;
+	return c;
+}

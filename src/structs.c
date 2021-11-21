@@ -12,7 +12,7 @@
 #include "structs.h"
 
 
-void *alloc_stat()
+static inline void *alloc_stat()
 {
         return malloc_inf(sizeof(struct stat));
 }
@@ -50,33 +50,10 @@ err_free_fdata:
 	return NULL;
 }
 
-/*
-void *alloc_bin_tree()
+static inline void *alloc_cdata()
 {
-        struct bin_tree *node;
-
-        if ((node = malloc_inf(sizeof(struct bin_tree)))) {
-                * 
-                 * I decided to NULL the left and right child here
-                 * so I don't mistakely forget to do that in further 
-                 * functions
-                 *
-                node->left = NULL;
-                node->right = NULL;
-        }
-        return node;
+	return malloc_inf(sizeof(struct cdata));
 }
-
-void free_bin_tree(struct bin_tree *root)
-{
-        if (root->left)
-                free_bin_tree(root->left);
-        if (root->right)
-                free_bin_tree(root->right);
-	free_fdata(root->data);
-	free(root);
-}
-*/
 
 void *alloc_list()
 {

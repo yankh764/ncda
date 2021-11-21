@@ -4,33 +4,32 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+/* File's data */
 struct fdata {
         char *fname;
         char *fpath;
-	short fcolor_pair;
         struct stat *fstatus;
 };
 
-/*
-struct bin_tree {
-        struct fdata *data;
-        struct bin_tree *left;
-        struct bin_tree *right;
-};
-*/
-
-struct list {
-	struct fdata *data;
-	struct list *next;
+/* Ncurses data */
+struct cdata {
+	short color_pair;
+	int y_cord;
 };
 
-void *alloc_stat();
+struct entry_data {
+	struct fdata *file_data;
+	struct cdata *curses_data;
+};
+
+struct doubly_list {
+	struct doubly_list *prev;
+	struct entry_data *data;
+	struct doubly_list *next;
+};
+
 void free_fdata(struct fdata *);
 void *alloc_fdata(size_t, size_t);
-/*
-void *alloc_bin_tree();
-void free_bin_tree(struct bin_tree *);
-*/
 void *alloc_list();
 void free_list(struct list *);
 
