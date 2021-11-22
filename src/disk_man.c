@@ -92,86 +92,65 @@ static int lstat_custom_fail(const char *path, struct stat *statbuf)
         return retval;
 }
 
-/*
- * Insert the remaining fdata fields that weren't inserted and are available 
- * at the moment (except the fcolor_pair field which will be inserted in 
- * curses.c file because it isn't available).
- */
-static inline void insert_fdata_fields(struct fdata *ptr, const char *name, 
-				       size_t nlen, const char *path, size_t plen)
+static inline void free_and_null_doubly_list(struct doubly_list **head)
+{
+	free_doubly_list(*head);
+	*head = NULL;
+}
+
+static inline void insert_fdata_fields(struct fdata *ptr, 
+				       const char *name, size_t nlen, 
+				       const char *path, size_t plen)
 {
 	memcpy(ptr->fname, name, nlen);
 	memcpy(ptr->fpath, path, plen);
 }
 
-static struct fdata *get_fdata(const char *path, const char *entry_name)
+static int get_fdata_fields(struct fdata *ptr, 
+			    const char *entry_path, size_t plen,
+			    const char *entry_name, size_t nlen)
 {
-        const size_t name_len = strlen(entry_name) + 1;
-        const size_t path_len = strlen(path) + 1;
-        struct fdata *data;
 	int ret;
 
-        if ((data = alloc_fdata(name_len, path_len))) {
-		if ((ret = lstat_custom_fail(path, data->fstatus))) {
-			if (ret == -1)
-				goto err_free_fdata;
-			free_and_null((void **) &data->fstatus);
-		}
-		insert_fdata_fields(data, entry_name, name_len, path, path_len);
+	if ((ret = lstat_custom_fail(entry_path, ptr->fstatus))) {
+		if (ret == -1)
+			return -1;
+		free_and_null((void **) &ptr->fstatus);
 	}
-        return data;
+	insert_fdata_fields(ptr, entry_name, nlen, entry_path, plen);
 
-err_free_fdata:
-	free_fdata(data);
-	
-	return NULL;
+	return 0;
 }
 
-/*
- * Decide which node between root->left or root->right
- *
-static struct bin_tree *decide_which_node(struct bin_tree *root, 
-					  struct bin_tree *new_node)
+static struct doubly_list *_get_doubly_list_node(const char *entry_path,
+						 const char *entry_name)
 {
-	struct bin_tree *retval;
+	size_t path_len, name_len;
+	struct doubly_list *node;
 
-	if (root->left)
-		retval = root->right = new_node;
-	else
-		retval = root->left = new_node;
+	name_len = strlen(entry_name) + 1;
+	path_len = strlen(entry_path) + 1;
 
-	return retval;
+	if ((node = alloc_doubly_list(name_len, path_len)))
+		if(get_fdata_fields(node->data->file_data, 
+				    entry_path, path_len,
+				    entry_name, name_len))
+			free_and_null_doubly_list(&node);
+	return node;
 }
 
-
-static struct bin_tree *get_current_node(struct bin_tree *root, 
-					 struct bin_tree *new_node, 
-					 const unsigned int parent)
+static struct doubly_list *get_doubly_list_node(const char *dir_path, 
+						const char *entry_name) 
 {
-	struct bin_tree *ret;
+	struct doubly_list *node;
+	char *entry_path;
 
-	if (root->data->node_num == parent) {
-		return decide_which_node(root, new_node);
-	} else if (root->left) {
-		if ((ret = get_current_node(root->left, new_node, parent)))
-			return ret;
-	} else if (root->right) {
-		if ((ret = get_current_node(root->right, new_node, parent)))
-			return ret;
+	node = NULL;
+	if ((entry_path = get_entry_path(dir_path, entry_name))) {
+		node = _get_doubly_list_node(entry_path, entry_name) ;
+		free(entry_path);	
 	}
-	return NULL;
-}
-
-static inline unsigned int get_parent_i(const unsigned int i)
-{
-	return ((i-1) / 2);
-}
-*/
-
-static inline void free_and_null_list(struct list **head)
-{
-	free_list(*head);
-	*head = NULL;
+	return node;
 }
 
 static inline bool is_dot_entry(const char *entry_name)
@@ -180,29 +159,15 @@ static inline bool is_dot_entry(const char *entry_name)
 		strcmp(entry_name, "..") == 0);
 }
 
-static struct fdata *get_lists_data(const char *dir_path, 
-				    const char *entry_name)
-{
-	struct fdata *retval;
-	char *entry_path;
-	
-	retval = NULL;
-	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		retval = get_fdata(entry_path, entry_name);
-		free(entry_path);
-	}
-	return retval;
-}
-
 /*
  * A helper function for get_dirs_content()
  */
-static struct list *_get_dirs_content(DIR *dp, const char *dir_path)
+static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 {
         struct dirent *entry;
-        struct list *new_node;
-        struct list *current;
-        struct list *head;
+        struct doubly_list *new_node;
+        struct doubly_list *current;
+        struct doubly_list *head;
         
 	head = NULL;
 	/* 
@@ -211,30 +176,30 @@ static struct list *_get_dirs_content(DIR *dp, const char *dir_path)
          */
         errno = 0;
 	while ((entry = readdir_inf(dp))) {
-		if (!(new_node = alloc_list()))
-			goto err_free_list;
-		if (!head)
+		if (!(new_node = get_doubly_list_node(dir_path, entry->d_name)))
+			goto err_free_doubly_list;
+		if (!head) {
 			current = head = new_node;
-		else
+		} else {
+			new_node->prev = current;
 			current = current->next = new_node;
-		if (!(current->data = get_lists_data(dir_path, entry->d_name)))
-			goto err_free_list;
+		}
 	}
 	if (errno)
-		goto err_free_list;
+		goto err_free_doubly_list;
 
 	return head;
 
-err_free_list:
+err_free_doubly_list:
 	if (head)
-		free_list(head);
+		free_doubly_list(head);
 	
 	return NULL;
 }
 
-struct list *get_dirs_content(const char *path)
+struct doubly_list *get_dirs_content(const char *path)
 {
-        struct list *head;
+        struct doubly_list *head;
         DIR *dp;
 
 	head = NULL;
@@ -242,7 +207,7 @@ struct list *get_dirs_content(const char *path)
                 head = _get_dirs_content(dp, path);
                 
                 if (closedir_inf(dp) && head)
-                        free_and_null_list(&head);
+                        free_and_null_doubly_list(&head);
         }
         return head;
 }

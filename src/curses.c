@@ -7,6 +7,12 @@
 ---------------------------------------------------------
 */
 
+/*
+ * Defining _GNU_SOURCE macro since it achives all the desired
+ * feature test macro requirements, which are:
+ *     1) _DEFAULT_SOURCE || _BSD_SOURCE for file type and mode macros
+ */
+#define _GNU_SOURCE
 #include <stdbool.h>
 #include "curses.h"
 

@@ -3,7 +3,7 @@
 
 #include "structs.h"
 
-struct list *get_dirs_content(const char *);
+struct doubly_list *get_dirs_content(const char *);
 int rm_entry(struct fdata *const);
 
 #endif

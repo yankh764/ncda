@@ -15,6 +15,7 @@ struct fdata {
 struct cdata {
 	short color_pair;
 	int y_cord;
+	char eos; /* Equivalent to end of string */
 };
 
 struct entry_data {
@@ -28,9 +29,8 @@ struct doubly_list {
 	struct doubly_list *next;
 };
 
-void free_fdata(struct fdata *);
-void *alloc_fdata(size_t, size_t);
-void *alloc_list();
-void free_list(struct list *);
+
+void *alloc_doubly_list(size_t, size_t);
+void free_doubly_list(struct doubly_list *);
 
 #endif

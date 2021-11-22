@@ -17,16 +17,7 @@ static inline void *alloc_stat()
         return malloc_inf(sizeof(struct stat));
 }
 
-void free_fdata(struct fdata *ptr)
-{
-	if (ptr->fstatus)
-		free(ptr->fstatus);
-	free(ptr->fpath);
-	free(ptr->fname);
-	free(ptr);
-}
-
-void *alloc_fdata(size_t name_len, size_t path_len)
+static void *alloc_fdata(size_t name_len, size_t path_len)
 {
 	struct fdata *retval;
 
@@ -50,29 +41,72 @@ err_free_fdata:
 	return NULL;
 }
 
+static void free_fdata(struct fdata *ptr)
+{
+	if (ptr->fstatus)
+		free(ptr->fstatus);
+	free(ptr->fpath);
+	free(ptr->fname);
+	free(ptr);
+}
+
 static inline void *alloc_cdata()
 {
 	return malloc_inf(sizeof(struct cdata));
 }
 
-void *alloc_list()
+static void *alloc_entry_data(size_t name_len, size_t path_len) 
 {
-	struct list *retval;
+	struct entry_data *retval;
 
-	if ((retval = malloc_inf(sizeof(struct list))))
-		/* 
-		 * NULL next now so I don't 
-		 * forget to do that later 
-		 */
-		retval->next = NULL;
+	if ((retval = malloc_inf(sizeof(struct entry_data)))) {
+		if (!(retval->file_data = alloc_fdata(name_len, path_len)))
+			goto err_free_entry_data;
+		if (!(retval->curses_data = alloc_cdata()))
+			goto err_free_fdata;
+	}
+	return retval;
 
+err_free_fdata:
+	free_fdata(retval->file_data);
+err_free_entry_data:
+	free(retval);
+
+	return NULL;
+}
+
+static void free_entry_data(struct entry_data *ptr)
+{
+	free(ptr->curses_data);
+	free_fdata(ptr->file_data);
+	free(ptr);
+}
+
+static inline void free_and_null(void **ptr)
+{
+	free(*ptr);
+	*ptr = NULL;
+}
+
+void *alloc_doubly_list(size_t name_len, size_t path_len)
+{
+	struct doubly_list *retval;
+
+	if ((retval = malloc_inf(sizeof(struct doubly_list)))) {
+		if ((retval->data = alloc_entry_data(name_len, path_len))) {
+			retval->prev = NULL;
+			retval->next = NULL;
+		}
+		else
+			free_and_null((void **) &retval);
+	}
 	return retval;
 }
 
-void free_list(struct list *node)
+void free_doubly_list(struct doubly_list *head)
 {
-	if (node->next)
-		free_list(node->next);
-	free_fdata(node->data);
-	free(node);
+	if (head->next)
+		free_doubly_list(head->next);
+	free_entry_data(head->data);
+	free(head);
 }
