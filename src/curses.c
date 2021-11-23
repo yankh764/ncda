@@ -60,14 +60,10 @@ static short get_color_pair_num(mode_t st_mode)
 		return DEFAULT_PAIR;
 }
 
-/*
- * Insert proper color pair to the file data structure, then return it.
- */
-static inline short proper_color_pair(struct fdata *data)
+static inline short proper_color_pair(struct stat *statbuf)
 {
-	return (data->fcolor_pair = data->fstatus ? 
-				    get_color_pair_num(data->fstatus->st_mode) : 
-				    DEFAULT_PAIR);
+	return (COLORED_OUTPUT && statbuf) ? 
+		get_color_pair_num(statbuf->st_mode) : 0;
 }
 
 /*
@@ -80,34 +76,53 @@ static inline char proper_eos(struct stat *const statbuf)
 	return (statbuf && S_ISDIR(statbuf->st_mode)) ? '/' : ' ';
 }
 
-static int display_fname_color(WINDOW *wp, struct list *const head)
+static inline void insert_cdata_fields(struct doubly_list *ptr, int i)
 {
-	struct list *current;
+	struct stat *statbuf = ptr->data->file_data->fstatus;
+
+	ptr->data->curses_data->color_pair = proper_color_pair(statbuf);
+	ptr->data->curses_data->y_cord = i + 1;
+	ptr->data->curses_data->eos = proper_eos(statbuf);
+}
+
+void nc_get_cdata_fields(struct doubly_list *head)
+{
+	struct doubly_list *current;
+	int i;
+	
+	for (current=head, i=0; current; current=current->next, i++)
+		insert_cdata_fields(current, i);
+}
+
+static int display_fname_color(WINDOW *wp, struct doubly_list *const head)
+{
+	struct doubly_list *current;
 
 	for (current=head; current; current=current->next) {
-		if (wattron(wp, COLOR_PAIR(proper_color_pair(current->data))))
+		if (wattron(wp, COLOR_PAIR(current->data->curses_data->color_pair)))
 			return -1;
-		if (wprintw(wp, "%s%c\n", current->data->fname, 
-			    proper_eos(current->data->fstatus)))
+		if (wprintw(wp, "%s%c\n", current->data->file_data->fname, 
+					  current->data->curses_data->eos))
 			return -1;
 	}
 	/* Reset the colors */
 	return wattron(wp, COLOR_PAIR(DEFAULT_PAIR));
 }
 
-static int display_fname_no_color(WINDOW *wp, struct list *const head)
+static int display_fname_no_color(WINDOW *wp, struct doubly_list *const head)
 {
-	struct list *current;
+	struct doubly_list *current;
 	int retval;
 
 	for (current=head; current; current=current->next)
-		if ((retval = wprintw(wp, "%s%c\n", current->data->fname, 
-				      proper_eos(current->data->fstatus))))
+		if ((retval = wprintw(wp, "%s%c\n", 
+				      current->data->file_data->fname, 
+				      current->data->curses_data->eos)))
 			break;
 	return retval;
 }
 
-int nc_display_fname(WINDOW *wp, struct list *const head) 
+int nc_display_fname(WINDOW *wp, struct doubly_list *const head) 
 {
 	if (COLORED_OUTPUT)
 		return display_fname_color(wp, head);
@@ -115,39 +130,35 @@ int nc_display_fname(WINDOW *wp, struct list *const head)
 		return display_fname_no_color(wp, head);
 }
 
-static int display_fpath_color(WINDOW *wp, struct list *const head)
+static int display_fpath_color(WINDOW *wp, struct doubly_list *const head)
 {
-	struct list *current;
+	struct doubly_list *current;
 
 	for (current=head; current; current=current->next) {
-		/* 
-		 * This function will always be called after having the proper
-		 * color pair inserted to the fdata struct; so there's no need
-		 * in calling proper_color_pair() function one more time.
-		 */
-		if (wattron(wp, COLOR_PAIR(current->data->fcolor_pair)))
+		if (wattron(wp, COLOR_PAIR(current->data->curses_data->color_pair)))
 			return -1;
-		if (wprintw(wp, "%s%c\n", current->data->fpath, 
-			    proper_eos(current->data->fstatus)))
+		if (wprintw(wp, "%s%c\n", current->data->file_data->fpath, 
+			                  current->data->curses_data->eos))
 			return -1;
 	}
 	/* Reset the colors */
 	return wattron(wp, COLOR_PAIR(DEFAULT_PAIR));
 }
 
-static int display_fpath_no_color(WINDOW *wp, struct list *const head)
+static int display_fpath_no_color(WINDOW *wp, struct doubly_list *const head)
 {
-	struct list *current;
+	struct doubly_list *current;
 	int retval;
 
 	for (current=head; current; current=current->next)
-		if ((retval = wprintw(wp, "%s%c\n", current->data->fpath, 
-		                      proper_eos(current->data->fstatus))))
+		if ((retval = wprintw(wp, "%s%c\n", 
+				      current->data->file_data->fpath, 
+				      current->data->curses_data->eos)))
 			break;
 	return retval;
 }
 
-int nc_display_fpath(WINDOW *wp, struct list *const head)
+int nc_display_fpath(WINDOW *wp, struct doubly_list *const head)
 {
 	if (COLORED_OUTPUT)
 		return display_fpath_color(wp, head);
@@ -165,11 +176,14 @@ static inline int init_color_pairs()
 		init_pair(DEFAULT_PAIR, -1,            -1));
 }
 
-static inline int start_color_if_supported()
+static int start_color_if_supported()
 {
-	return (COLORED_OUTPUT = has_colors()) ? (use_default_colors() || 
-						  start_color() || 
-						  init_color_pairs()) : 0;
+	if ((COLORED_OUTPUT = has_colors()))
+		return (use_default_colors() || 
+			start_color()        || 
+			init_color_pairs());
+	else
+		return 0;
 }
 
 static inline int init_local_setup(WINDOW *wp)
@@ -218,7 +232,7 @@ WINDOW *nc_newwin(int lines_num, int cols_num, int begin_y, int begin_x)
 /*
  * Check if c is in the navigation keys, and return the value of the 
  * operation that this key does
- */
+ *
 static int in_navigation_keys(int c)
 {
 	if (c == KEY_UP || c == 'k')
@@ -227,8 +241,8 @@ static int in_navigation_keys(int c)
 		return KEY_DOWN;
 	else 
 		return 0;
-}
-
+}*/
+/*
 static int get_updated_y(int key, int max_y, int y)
 {
 	if (y && key == KEY_UP)
@@ -244,9 +258,9 @@ static int update_highlight_loc(WINDOW *wp, int key, int y)
 	return mvwchgat(wp, y, 0, -1, A_STANDOUT, DEFAULT_PAIR, NULL);
 }
 
-/* 
+* 
  * An helper function for nc_man_input()
- */
+ *
 static int _nc_man_input(WINDOW *wp, int c)
 {
 	int key;
@@ -265,4 +279,4 @@ int nc_man_input(WINDOW *wp, struct list *const )
 		if (_nc_man_input(wp, c))
 			return -1;
 	return c;
-}
+}*/

@@ -88,15 +88,19 @@ static inline void free_and_null(void **ptr)
 	*ptr = NULL;
 }
 
+static inline void null_prev_and_next(struct doubly_list *node)
+{
+	node->prev = NULL;
+	node->next = NULL;
+}
+
 void *alloc_doubly_list(size_t name_len, size_t path_len)
 {
 	struct doubly_list *retval;
 
 	if ((retval = malloc_inf(sizeof(struct doubly_list)))) {
-		if ((retval->data = alloc_entry_data(name_len, path_len))) {
-			retval->prev = NULL;
-			retval->next = NULL;
-		}
+		if ((retval->data = alloc_entry_data(name_len, path_len)))
+			null_prev_and_next(retval);
 		else
 			free_and_null((void **) &retval);
 	}

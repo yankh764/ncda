@@ -36,7 +36,7 @@ static inline void free_and_null(void **ptr)
 /*
  * Get entry's path in the case of dir_path being just a slash
  */
-static char *_get_entry_path_slash(const char *entry_name)
+static char *get_entry_path_slash(const char *entry_name)
 {
 	char *entry_path;
 	size_t len;
@@ -52,8 +52,8 @@ static char *_get_entry_path_slash(const char *entry_name)
  * Get entry's path in the case of dir_path being just a regular
  * path and not just slash (contrast to _get_entry_path_slash())
  */
-static char *_get_entry_path_not_slash(const char *dir_path, 
-				       const char *entry_name)
+static char *get_entry_path_not_slash(const char *dir_path, 
+				      const char *entry_name)
 {
 	char *entry_path;
         size_t len;
@@ -73,9 +73,9 @@ static inline bool is_slash(const char *dir_path)
 static char *get_entry_path(const char *dir_path, const char *entry_name)
 {
         if (is_slash(dir_path))
-		return _get_entry_path_slash(entry_name);
+		return get_entry_path_slash(entry_name);
 	else
-		return _get_entry_path_not_slash(dir_path, entry_name);
+		return get_entry_path_not_slash(dir_path, entry_name);
 }
 
 /*
@@ -159,6 +159,31 @@ static inline bool is_dot_entry(const char *entry_name)
 		strcmp(entry_name, "..") == 0);
 }
 
+static inline void connect_dot_entries(struct doubly_list *dot, 
+				       struct doubly_list *two_dots, 
+				       struct doubly_list *head)
+{
+	dot->next = two_dots;
+	two_dots->prev = dot;
+	two_dots->next = head;
+}
+
+static struct doubly_list *prepend_dot_entries(struct doubly_list *head, 
+					       const char *dir_path)
+{
+	struct doubly_list *two_dots;
+	struct doubly_list *dot;
+
+	if ((dot = get_doubly_list_node(dir_path, "."))) {
+		if ((two_dots = get_doubly_list_node(dir_path, "..")))
+			connect_dot_entries(dot, two_dots, head);
+		else 
+			free_and_null_doubly_list(&dot);
+		
+	}
+	return dot;
+}
+
 /*
  * A helper function for get_dirs_content()
  */
@@ -170,12 +195,11 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
         struct doubly_list *head;
         
 	head = NULL;
-	/* 
-         * Reset errno to 0 to distnguish between 
-         * error and end of directory in readdir_inf() 
-         */
         errno = 0;
+
 	while ((entry = readdir_inf(dp))) {
+		if (is_dot_entry(entry->d_name))
+			continue;
 		if (!(new_node = get_doubly_list_node(dir_path, entry->d_name)))
 			goto err_free_doubly_list;
 		if (!head) {
@@ -188,7 +212,14 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 	if (errno)
 		goto err_free_doubly_list;
 
-	return head;
+	/* 
+	 * I want the dot entries to be the first 2 nodes 
+	 * of the doubly linked list so I skipped them in the 
+	 * while loop because there's no guarentee for the order 
+	 * in which file names are read in readdir(). So I decided
+	 * to prepend them to the head node at the end of the function.
+	 */
+	return prepend_dot_entries(head, dir_path);
 
 err_free_doubly_list:
 	if (head)
@@ -217,7 +248,7 @@ static inline int rm_file(const char *path)
 	return unlink_inf(path);
 }
 
-static int delete_entry(const char *entry_path)
+static int _delete_entry(const char *entry_path)
 {
 	struct stat statbuf;
 
@@ -229,15 +260,14 @@ static int delete_entry(const char *entry_path)
 		return rm_file(entry_path);
 }
 
-static int rm_dir_r_delete_entry(const char *dir_path, const char *entry_name)
+static int delete_entry(const char *dir_path, const char *entry_name)
 {
 	char *entry_path;	
 	int retval;
 	
 	retval = -1;
-	
 	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		retval = delete_entry(entry_path);
+		retval = _delete_entry(entry_path);
 		free(entry_path);
 	}
 	return retval;
@@ -256,7 +286,7 @@ static int _rm_dir_r(DIR *dp, const char *path)
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
-		if (rm_dir_r_delete_entry(path, entry->d_name))
+		if (delete_entry(path, entry->d_name))
 			break;
 	}
 	return errno ? -1 : 0;
@@ -274,9 +304,9 @@ static int rm_dir_r(const char *path)
 	if ((dp = opendir_inf(path))) {
 		/* Remove directory's content */
 		retval = _rm_dir_r(dp, path);
+		
 		if (closedir_inf(dp))
 			retval = -1;
-		
 		if (!retval)
 			/* Remove the directory itself */
 			retval = rmdir_inf(path);
