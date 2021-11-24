@@ -13,6 +13,7 @@
  *     1) _DEFAULT_SOURCE || _BSD_SOURCE for file type and mode macros
  */
 #define _GNU_SOURCE
+#include <stdlib.h>
 #include <stdbool.h>
 #include "curses.h"
 
@@ -81,7 +82,8 @@ static inline void insert_cdata_fields(struct doubly_list *ptr, int i)
 	struct stat *statbuf = ptr->data->file_data->fstatus;
 
 	ptr->data->curses_data->color_pair = proper_color_pair(statbuf);
-	ptr->data->curses_data->y_cord = i + 1;
+	/* The 2 = the help message + an empty line */
+	ptr->data->curses_data->y = i + 2;
 	ptr->data->curses_data->eos = proper_eos(statbuf);
 }
 
@@ -94,15 +96,34 @@ void nc_get_cdata_fields(struct doubly_list *head)
 		insert_cdata_fields(current, i);
 }
 
+/*
+ * This function was created for the sake of readability (to avoid reading
+ * all the struct derefrencings inside bigger functions)
+ */
+static inline int attron_color(WINDOW *wp, struct doubly_list *const node)
+{
+	return wattron(wp, COLOR_PAIR(node->data->curses_data->color_pair));
+}
+
+/*
+ * This function was created for the sake of readability (to avoid reading
+ * all the struct derefrencings inside bigger functions and making a mess)
+ */
+static inline int print_fname(WINDOW *wp, struct doubly_list *const node) 
+{
+	return mvwprintw(wp, node->data->curses_data->y, 0,"%s%c\n",
+			 node->data->file_data->fname, 
+			 node->data->curses_data->eos);
+}
+
 static int display_fname_color(WINDOW *wp, struct doubly_list *const head)
 {
 	struct doubly_list *current;
 
 	for (current=head; current; current=current->next) {
-		if (wattron(wp, COLOR_PAIR(current->data->curses_data->color_pair)))
+		if (attron_color(wp, current))
 			return -1;
-		if (wprintw(wp, "%s%c\n", current->data->file_data->fname, 
-					  current->data->curses_data->eos))
+		if (print_fname(wp, current))
 			return -1;
 	}
 	/* Reset the colors */
@@ -115,9 +136,7 @@ static int display_fname_no_color(WINDOW *wp, struct doubly_list *const head)
 	int retval;
 
 	for (current=head; current; current=current->next)
-		if ((retval = wprintw(wp, "%s%c\n", 
-				      current->data->file_data->fname, 
-				      current->data->curses_data->eos)))
+		if ((retval = print_fname(wp, current)))
 			break;
 	return retval;
 }
@@ -128,42 +147,6 @@ int nc_display_fname(WINDOW *wp, struct doubly_list *const head)
 		return display_fname_color(wp, head);
 	else
 		return display_fname_no_color(wp, head);
-}
-
-static int display_fpath_color(WINDOW *wp, struct doubly_list *const head)
-{
-	struct doubly_list *current;
-
-	for (current=head; current; current=current->next) {
-		if (wattron(wp, COLOR_PAIR(current->data->curses_data->color_pair)))
-			return -1;
-		if (wprintw(wp, "%s%c\n", current->data->file_data->fpath, 
-			                  current->data->curses_data->eos))
-			return -1;
-	}
-	/* Reset the colors */
-	return wattron(wp, COLOR_PAIR(DEFAULT_PAIR));
-}
-
-static int display_fpath_no_color(WINDOW *wp, struct doubly_list *const head)
-{
-	struct doubly_list *current;
-	int retval;
-
-	for (current=head; current; current=current->next)
-		if ((retval = wprintw(wp, "%s%c\n", 
-				      current->data->file_data->fpath, 
-				      current->data->curses_data->eos)))
-			break;
-	return retval;
-}
-
-int nc_display_fpath(WINDOW *wp, struct doubly_list *const head)
-{
-	if (COLORED_OUTPUT)
-		return display_fpath_color(wp, head);
-	else
-		return display_fpath_no_color(wp, head);
 }
 
 static inline int init_color_pairs()
@@ -206,6 +189,17 @@ int nc_init_setup()
 		init_local_setup(stdscr));
 }
 
+/*
+ * The initial display for each window
+ */
+int nc_initial_display(WINDOW *wp)
+{
+	short color_pair = COLORED_OUTPUT ? CYAN_PAIR : 0;
+
+	return (wprintw(wp, "Ncurses disk analyzer --- Press ? for help\n") ||
+		mvwchgat(wp, 0, 0, -1, A_REVERSE, color_pair, NULL));
+}
+
 static inline int del_and_null_win(WINDOW **wp)
 {
 	int retval;
@@ -241,8 +235,8 @@ static int in_navigation_keys(int c)
 		return KEY_DOWN;
 	else 
 		return 0;
-}*/
-/*
+}
+
 static int get_updated_y(int key, int max_y, int y)
 {
 	if (y && key == KEY_UP)
@@ -256,9 +250,9 @@ static int get_updated_y(int key, int max_y, int y)
 static int update_highlight_loc(WINDOW *wp, int key, int y)
 {
 	return mvwchgat(wp, y, 0, -1, A_STANDOUT, DEFAULT_PAIR, NULL);
-}
+}*/
 
-* 
+/* 
  * An helper function for nc_man_input()
  *
 static int _nc_man_input(WINDOW *wp, int c)
@@ -271,7 +265,7 @@ static int _nc_man_input(WINDOW *wp, int c)
 	}
 }
 
-int nc_man_input(WINDOW *wp, struct list *const )
+int nc_man_input(WINDOW *wp)
 {
 	int c;
 
