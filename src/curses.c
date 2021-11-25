@@ -42,7 +42,7 @@ enum COLOR_PAIRS_NUM {
 	MAGENTA_PAIR = 5,
 	DEFAULT_PAIR = 6
 };
-struct list *highligted_node; 
+struct doubly_list *highligted_node; 
 
 
 static short get_color_pair_num(mode_t st_mode)
@@ -189,15 +189,37 @@ int nc_init_setup()
 		init_local_setup(stdscr));
 }
 
+static int restore_prev_entry_design(WINDOW *wp)
+{
+	struct doubly_list *prev;
+
+	if((prev = highligted_node->prev))
+		return mvwchgat(wp, prev->data->curses_data->y, 0, -1, A_BOLD, 
+				prev->data->curses_data->color_pair, NULL);
+	else
+		return 0;
+}
+
+static inline int update_highlight_loc(WINDOW *wp)
+{	
+	return (mvwchgat(wp, highligted_node->data->curses_data->y, 
+			 0, -1, A_REVERSE | A_BOLD, 0, NULL) ||
+	        restore_prev_entry_design(wp));
+}
+
 /*
  * The initial display for each window
  */
-int nc_initial_display(WINDOW *wp)
+int nc_initial_display(WINDOW *wp, struct doubly_list *const head)
 {
 	short color_pair = COLORED_OUTPUT ? CYAN_PAIR : 0;
+	
+	highligted_node = head;
 
 	return (wprintw(wp, "Ncurses disk analyzer --- Press ? for help\n") ||
-		mvwchgat(wp, 0, 0, -1, A_REVERSE, color_pair, NULL));
+		mvwchgat(wp, 0, 0, -1, A_REVERSE, color_pair, NULL) ||
+		nc_display_fname(wp, head) || update_highlight_loc(wp) ||
+		wrefresh(wp));
 }
 
 static inline int del_and_null_win(WINDOW **wp)
@@ -226,7 +248,7 @@ WINDOW *nc_newwin(int lines_num, int cols_num, int begin_y, int begin_x)
 /*
  * Check if c is in the navigation keys, and return the value of the 
  * operation that this key does
- *
+ */
 static int in_navigation_keys(int c)
 {
 	if (c == KEY_UP || c == 'k')
@@ -237,32 +259,25 @@ static int in_navigation_keys(int c)
 		return 0;
 }
 
-static int get_updated_y(int key, int max_y, int y)
+static int change_highlight_loc(WINDOW *wp, int key)
 {
-	if (y && key == KEY_UP)
-		y--;
-	else if (y < max_y && key == KEY_DOWN)
-		y++;
+	if (key == KEY_DOWN && highligted_node->next)
+		highligted_node = highligted_node->next;
+	else if (key == KEY_UP && highligted_node->prev)
+		highligted_node = highligted_node->prev;
 
-	return y;
+	return update_highlight_loc(wp) || wrefresh(wp);
 }
 
-static int update_highlight_loc(WINDOW *wp, int key, int y)
-{
-	return mvwchgat(wp, y, 0, -1, A_STANDOUT, DEFAULT_PAIR, NULL);
-}*/
-
-/* 
- * An helper function for nc_man_input()
- *
-static int _nc_man_input(WINDOW *wp, int c)
+static int perform_input_operations(WINDOW *wp, int c)
 {
 	int key;
 
 	if ((key = in_navigation_keys(c))) {
-		if (update_highlight_loc(wp, key))
+		if (change_highlight_loc(wp, key))
 			return -1;
 	}
+	return 0;
 }
 
 int nc_man_input(WINDOW *wp)
@@ -270,7 +285,7 @@ int nc_man_input(WINDOW *wp)
 	int c;
 
 	while ((c = wgetch(wp)) != ERR)
-		if (_nc_man_input(wp, c))
+		if (perform_input_operations(wp, c))
 			return -1;
 	return c;
-}*/
+}
