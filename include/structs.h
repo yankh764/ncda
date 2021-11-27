@@ -13,7 +13,7 @@ struct fdata {
 
 /* Ncurses data */
 struct cdata {
-	short color_pair;
+	short cpair;
 	int y;
 	char eos; /* Equivalent to end of string */
 };

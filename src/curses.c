@@ -15,6 +15,7 @@
 #define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdbool.h>
+#include "disk_man.h"
 #include "curses.h"
 
 /*
@@ -72,7 +73,7 @@ static inline short proper_color_pair(struct stat *statbuf)
  * the string will be slash ('/'), else the end of a string will be blank
  * character (' ').
  */
-static inline char proper_eos(struct stat *const statbuf)
+static inline char proper_eos(struct stat *statbuf)
 {
 	return (statbuf && S_ISDIR(statbuf->st_mode)) ? '/' : ' ';
 }
@@ -81,8 +82,8 @@ static inline void insert_cdata_fields(struct doubly_list *ptr, int i)
 {
 	struct stat *statbuf = ptr->data->file_data->fstatus;
 
-	ptr->data->curses_data->color_pair = proper_color_pair(statbuf);
-	/* The 2 = the help message + an empty line */
+	ptr->data->curses_data->cpair = proper_color_pair(statbuf);
+	/* The 2 = an empty line + border */
 	ptr->data->curses_data->y = i + 2;
 	ptr->data->curses_data->eos = proper_eos(statbuf);
 }
@@ -90,7 +91,7 @@ static inline void insert_cdata_fields(struct doubly_list *ptr, int i)
 void nc_get_cdata_fields(struct doubly_list *head)
 {
 	struct doubly_list *current;
-	int i;
+	unsigned int i;
 	
 	for (current=head, i=0; current; current=current->next, i++)
 		insert_cdata_fields(current, i);
@@ -102,7 +103,8 @@ void nc_get_cdata_fields(struct doubly_list *head)
  */
 static inline int attron_color(WINDOW *wp, struct doubly_list *const node)
 {
-	return wattron(wp, COLOR_PAIR(node->data->curses_data->color_pair));
+	return wattron(wp, COLOR_PAIR(node->data->curses_data->cpair)) == ERR ? 
+	       -1 : 0;
 }
 
 /*
@@ -111,9 +113,9 @@ static inline int attron_color(WINDOW *wp, struct doubly_list *const node)
  */
 static inline int print_fname(WINDOW *wp, struct doubly_list *const node) 
 {
-	return mvwprintw(wp, node->data->curses_data->y, 0,"%s%c\n",
+	return mvwprintw(wp, node->data->curses_data->y, 0, "%s%c\n",
 			 node->data->file_data->fname, 
-			 node->data->curses_data->eos);
+			 node->data->curses_data->eos) == ERR ? -1 : 0;
 }
 
 static int display_fname_color(WINDOW *wp, struct doubly_list *const head)
@@ -127,18 +129,17 @@ static int display_fname_color(WINDOW *wp, struct doubly_list *const head)
 			return -1;
 	}
 	/* Reset the colors */
-	return wattron(wp, COLOR_PAIR(DEFAULT_PAIR));
+	return wattron(wp, COLOR_PAIR(DEFAULT_PAIR)) == ERR ? -1 : 0;
 }
 
 static int display_fname_no_color(WINDOW *wp, struct doubly_list *const head)
 {
 	struct doubly_list *current;
-	int retval;
 
 	for (current=head; current; current=current->next)
-		if ((retval = print_fname(wp, current)))
-			break;
-	return retval;
+		if (print_fname(wp, current))
+			return -1;
+	return 0;
 }
 
 int nc_display_fname(WINDOW *wp, struct doubly_list *const head) 
@@ -149,29 +150,35 @@ int nc_display_fname(WINDOW *wp, struct doubly_list *const head)
 		return display_fname_no_color(wp, head);
 }
 
-static inline int init_color_pairs()
+static int init_color_pairs()
 {
-	return (init_pair(BLUE_PAIR,    COLOR_BLUE,    -1) ||
-		init_pair(GREEN_PAIR,   COLOR_GREEN,   -1) || 
-		init_pair(YELLOW_PAIR,  COLOR_YELLOW,  -1) ||
-		init_pair(CYAN_PAIR,    COLOR_CYAN,    -1) ||
-		init_pair(MAGENTA_PAIR, COLOR_MAGENTA, -1) ||
-		init_pair(DEFAULT_PAIR, -1,            -1));
+	return (init_pair(BLUE_PAIR,    COLOR_BLUE,    -1) == ERR ||
+	        init_pair(GREEN_PAIR,   COLOR_GREEN,   -1) == ERR ||
+	        init_pair(YELLOW_PAIR,  COLOR_YELLOW,  -1) == ERR ||
+	        init_pair(CYAN_PAIR,    COLOR_CYAN,    -1) == ERR ||
+	        init_pair(MAGENTA_PAIR, COLOR_MAGENTA, -1) == ERR ||
+	        init_pair(DEFAULT_PAIR, -1,            -1) == ERR) ? -1 : 0;
+}
+
+static inline int start_ncurses_colors()
+{
+	return (use_default_colors() == ERR ||
+	        start_color() == ERR ||
+	        init_color_pairs()) ? -1 : 0;
 }
 
 static int start_color_if_supported()
 {
 	if ((COLORED_OUTPUT = has_colors()))
-		return (use_default_colors() || 
-			start_color()        || 
-			init_color_pairs());
+		return start_ncurses_colors();	
 	else
 		return 0;
 }
 
 static inline int init_local_setup(WINDOW *wp)
 {
-	return (keypad(wp, TRUE) || wattrset(wp, A_BOLD));
+	return (keypad(wp, TRUE) == ERR || 
+		wattrset(wp, A_BOLD) == ERR) ? -1 : 0;
 }
 
 /*
@@ -179,32 +186,93 @@ static inline int init_local_setup(WINDOW *wp)
  */
 static inline int invisibilize_cursor()
 {
-	return curs_set(0) != ERR ? 0 : ERR;
+	return curs_set(0) == ERR ? -1 : 0;
 }
 
 int nc_init_setup()
 {
-	return (start_color_if_supported() || cbreak() ||
-		noecho() || invisibilize_cursor() || 
-		init_local_setup(stdscr));
+	return (start_color_if_supported() || 
+		cbreak() == ERR || noecho() == ERR || 
+		invisibilize_cursor() || 
+		init_local_setup(stdscr)) ? -1 : 0;
 }
 
-static int restore_prev_entry_design(WINDOW *wp)
+static int print_opening_message(WINDOW *wp)
 {
-	struct doubly_list *prev;
+	const char *message = "Ncurses disk analyzer --- Press ? for help";
+	short color_pair = COLORED_OUTPUT ? CYAN_PAIR : 0;
 
-	if((prev = highligted_node->prev))
-		return mvwchgat(wp, prev->data->curses_data->y, 0, -1, A_BOLD, 
-				prev->data->curses_data->color_pair, NULL);
-	else
+	return (mvwprintw(wp, 0, 0, "%s", message) == ERR || 
+	        mvwchgat(wp, 0, 0, -1, A_REVERSE, color_pair, NULL) == ERR) ? 
+		-1 : 0;
+}
+
+static int print_summary_message(WINDOW *wp)
+{
+	const char *message = "Summary";
+	short color_pair = COLORED_OUTPUT ? CYAN_PAIR : 0;
+	int my;
+
+	if ((my = getmaxy(wp)) == ERR)
+		return -1;
+	
+	return (mvwprintw(wp, my-1, 0, message) == ERR || 
+		mvwchgat(wp, my-1, 0, -1, A_REVERSE, color_pair, NULL) == ERR) ?
+		-1 : 0;
+}
+
+static int create_borders(WINDOW *wp)
+{
+	int max_x, max_y;
+	
+	getmaxyx(wp, max_y, max_x);
+
+	return (mvwhline(wp, 1, 0, '-', max_x) == ERR || 
+		mvwhline(wp, max_y-2, 0, '-', max_x) == ERR) ? -1 : 0; 
+}
+
+/*
+ * This function is for the sake of readability
+ */
+static inline int restore_prev_entry_design(WINDOW *wp)
+{
+	return mvwchgat(wp, highligted_node->prev->data->curses_data->y, 0, -1,
+			A_BOLD, highligted_node->prev->data->curses_data->cpair,
+			NULL);
+}
+
+/*
+ * This function is for the sake of readability
+ */
+static inline int restore_next_entry_design(WINDOW *wp)
+{
+	return mvwchgat(wp, highligted_node->next->data->curses_data->y, 0, -1,
+			A_BOLD, highligted_node->next->data->curses_data->cpair,
+			NULL);
+}
+
+static int restore_entry_design(WINDOW *wp, int key)
+{
+	if (key == KEY_DOWN && highligted_node->prev)
+		return restore_prev_entry_design(wp) == ERR ? -1 : 0;
+	else if (key == KEY_UP && highligted_node->next)
+		return restore_next_entry_design(wp) == ERR ? -1 : 0;
+	else	
 		return 0;
 }
 
-static inline int update_highlight_loc(WINDOW *wp)
+static inline int update_highlight_loc(WINDOW *wp, int key)
 {	
 	return (mvwchgat(wp, highligted_node->data->curses_data->y, 
-			 0, -1, A_REVERSE | A_BOLD, 0, NULL) ||
-	        restore_prev_entry_design(wp));
+			 0, -1, A_REVERSE | A_BOLD, 0, NULL) == ERR ||
+	        restore_entry_design(wp, key)) ? -1 : 0;
+}
+
+static int init_highlight(WINDOW *wp, struct doubly_list *const head)
+{
+	highligted_node = head;
+	
+	return update_highlight_loc(wp, '\0');
 }
 
 /*
@@ -212,14 +280,9 @@ static inline int update_highlight_loc(WINDOW *wp)
  */
 int nc_initial_display(WINDOW *wp, struct doubly_list *const head)
 {
-	short color_pair = COLORED_OUTPUT ? CYAN_PAIR : 0;
-	
-	highligted_node = head;
-
-	return (wprintw(wp, "Ncurses disk analyzer --- Press ? for help\n") ||
-		mvwchgat(wp, 0, 0, -1, A_REVERSE, color_pair, NULL) ||
-		nc_display_fname(wp, head) || update_highlight_loc(wp) ||
-		wrefresh(wp));
+	return (print_opening_message(wp) || print_summary_message(wp) ||
+		create_borders(wp) || nc_display_fname(wp, head) || 
+		init_highlight(wp, head) || wrefresh(wp) == ERR) ? -1 : 0;
 }
 
 static inline int del_and_null_win(WINDOW **wp)
@@ -266,7 +329,7 @@ static int change_highlight_loc(WINDOW *wp, int key)
 	else if (key == KEY_UP && highligted_node->prev)
 		highligted_node = highligted_node->prev;
 
-	return update_highlight_loc(wp) || wrefresh(wp);
+	return (update_highlight_loc(wp, key) || wrefresh(wp) == ERR) ? -1 : 0;
 }
 
 static int perform_input_operations(WINDOW *wp, int c)
@@ -276,7 +339,8 @@ static int perform_input_operations(WINDOW *wp, int c)
 	if ((key = in_navigation_keys(c))) {
 		if (change_highlight_loc(wp, key))
 			return -1;
-	}
+	} else if ((c == 'q'))
+		return 1;
 	return 0;
 }
 

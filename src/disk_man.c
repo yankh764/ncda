@@ -164,12 +164,13 @@ static inline void connect_dot_entries(struct doubly_list *dot,
 				       struct doubly_list *head)
 {
 	dot->next = two_dots;
-	two_dots->prev = dot;
 	two_dots->next = head;
+	head->prev = two_dots;
+	two_dots->prev = dot;
 }
 
-static struct doubly_list *prepend_dot_entries(struct doubly_list *head, 
-					       const char *dir_path)
+static struct doubly_list *prepend_dot_entries(const char *dir_path, 
+					       struct doubly_list *head)
 {
 	struct doubly_list *two_dots;
 	struct doubly_list *dot;
@@ -182,6 +183,13 @@ static struct doubly_list *prepend_dot_entries(struct doubly_list *head,
 		
 	}
 	return dot;
+}
+
+static inline void connect_nodes(struct doubly_list *current, 
+				 struct doubly_list *new_node)
+{
+	current->next = new_node;
+	new_node->prev = current;
 }
 
 /*
@@ -205,8 +213,8 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 		if (!head) {
 			current = head = new_node;
 		} else {
-			new_node->prev = current;
-			current = current->next = new_node;
+			connect_nodes(current, new_node);
+			current = current->next;
 		}
 	}
 	if (errno)
@@ -219,7 +227,7 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 	 * in which file names are read in readdir(). So I decided
 	 * to prepend them to the head node at the end of the function.
 	 */
-	return prepend_dot_entries(head, dir_path);
+	return prepend_dot_entries(dir_path, head);
 
 err_free_doubly_list:
 	if (head)
@@ -321,3 +329,5 @@ int rm_entry(struct fdata *const data)
 	else
 		return rm_file(data->fpath);
 }
+
+
