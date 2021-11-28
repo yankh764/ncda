@@ -13,6 +13,7 @@
  *     1) _DEFAULT_SOURCE || _BSD_SOURCE for file type and mode macros
  */
 #define _GNU_SOURCE
+#include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include "disk_man.h"
@@ -43,6 +44,12 @@ enum COLOR_PAIRS_NUM {
 	MAGENTA_PAIR = 5,
 	DEFAULT_PAIR = 6
 };
+
+struct size_format {
+	float size_format;
+	char *size_unit;
+};
+
 struct doubly_list *highligted_node; 
 
 
@@ -64,8 +71,10 @@ static short get_color_pair_num(mode_t st_mode)
 
 static inline short proper_color_pair(struct stat *statbuf)
 {
-	return (COLORED_OUTPUT && statbuf) ? 
-		get_color_pair_num(statbuf->st_mode) : 0;
+	if (COLORED_OUTPUT && statbuf) 
+		return get_color_pair_num(statbuf->st_mode);
+	else 
+		return 0;
 }
 
 /*
@@ -103,8 +112,9 @@ void nc_get_cdata_fields(struct doubly_list *head)
  */
 static inline int attron_color(WINDOW *wp, struct doubly_list *const node)
 {
-	return wattron(wp, COLOR_PAIR(node->data->curses_data->cpair)) == ERR ? 
-	       -1 : 0;
+	short color_pair = node->data->curses_data->cpair;
+
+	return (wattron(wp, COLOR_PAIR(color_pair)) == ERR) ? -1 : 0;
 }
 
 /*
@@ -113,9 +123,11 @@ static inline int attron_color(WINDOW *wp, struct doubly_list *const node)
  */
 static inline int print_fname(WINDOW *wp, struct doubly_list *const node) 
 {
-	return mvwprintw(wp, node->data->curses_data->y, 0, "%s%c\n",
-			 node->data->file_data->fname, 
-			 node->data->curses_data->eos) == ERR ? -1 : 0;
+	const char *name = node->data->file_data->fname; 
+	char eos = node->data->curses_data->eos;
+	int y = node->data->curses_data->y;
+
+	return (mvwprintw(wp, y, 0, "%s%c\n", name, eos) == ERR) ? -1 : 0;
 }
 
 static int display_fname_color(WINDOW *wp, struct doubly_list *const head)
@@ -129,7 +141,7 @@ static int display_fname_color(WINDOW *wp, struct doubly_list *const head)
 			return -1;
 	}
 	/* Reset the colors */
-	return wattron(wp, COLOR_PAIR(DEFAULT_PAIR)) == ERR ? -1 : 0;
+	return (wattron(wp, COLOR_PAIR(DEFAULT_PAIR)) == ERR) ? -1 : 0;
 }
 
 static int display_fname_no_color(WINDOW *wp, struct doubly_list *const head)
@@ -150,7 +162,7 @@ int nc_display_fname(WINDOW *wp, struct doubly_list *const head)
 		return display_fname_no_color(wp, head);
 }
 
-static int init_color_pairs()
+static inline int init_color_pairs()
 {
 	return (init_pair(BLUE_PAIR,    COLOR_BLUE,    -1) == ERR ||
 	        init_pair(GREEN_PAIR,   COLOR_GREEN,   -1) == ERR ||
@@ -160,7 +172,7 @@ static int init_color_pairs()
 	        init_pair(DEFAULT_PAIR, -1,            -1) == ERR) ? -1 : 0;
 }
 
-static inline int start_ncurses_colors()
+static int start_ncurses_colors()
 {
 	return (use_default_colors() == ERR ||
 	        start_color() == ERR ||
@@ -170,8 +182,8 @@ static inline int start_ncurses_colors()
 static int start_color_if_supported()
 {
 	if ((COLORED_OUTPUT = has_colors()))
-		return start_ncurses_colors();	
-	else
+		return start_ncurses_colors();
+	else 
 		return 0;
 }
 
@@ -200,45 +212,112 @@ int nc_init_setup()
 static int print_opening_message(WINDOW *wp)
 {
 	const char *message = "Ncurses disk analyzer --- Press ? for help";
-	short color_pair = COLORED_OUTPUT ? CYAN_PAIR : 0;
+	short cpair = COLORED_OUTPUT ? CYAN_PAIR : 0;
 
 	return (mvwprintw(wp, 0, 0, "%s", message) == ERR || 
-	        mvwchgat(wp, 0, 0, -1, A_REVERSE, color_pair, NULL) == ERR) ? 
-		-1 : 0;
+	        mvwchgat(wp, 0, 0, -1, A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
 }
 
-static int print_summary_message(WINDOW *wp)
+static off_t get_total_disk_usage(struct doubly_list *const head)
 {
-	const char *message = "Summary";
-	short color_pair = COLORED_OUTPUT ? CYAN_PAIR : 0;
-	int my;
+	struct doubly_list *current;
+	off_t total;
 
-	if ((my = getmaxy(wp)) == ERR)
-		return -1;
+	total = 0;
+
+	for (current=head; current; current=current->next)
+		if (current->data->file_data->fstatus)
+			total += current->data->file_data->fstatus->st_size;
+	return total;
+}
+
+static struct size_format proper_size_format(float size, char *unit)
+{
+	struct size_format retval;
+
+	retval.size_format = size;
+	retval.size_unit = unit;
+
+	return retval;
+}
+
+static inline float bytes_to_gb(off_t bytes)
+{
+	return bytes / 1000000000.0;
+}
+
+static inline float bytes_to_mb(off_t bytes)
+{
+	return bytes / 1000000.0;
+}
+
+static inline float bytes_to_kb(off_t bytes)
+{
+	return bytes / 1000.0;
+}
+
+static struct size_format get_proper_size_format(off_t bytes)
+{
+	const off_t gb = 1000000000;
+	const off_t mb = 1000000;
+	const off_t kb = 1000;
+
+	if (bytes >= gb)
+		return proper_size_format(bytes_to_gb(bytes), "GB");
+	else if (bytes >= mb)
+		return proper_size_format(bytes_to_mb(bytes), "MB");
+	else if (bytes >= kb)
+		return proper_size_format(bytes_to_kb(bytes), "KB");
+	else
+		return proper_size_format(bytes, "B");
+}
+
+static inline int summary_message(WINDOW *wp, 
+				  struct doubly_list *const head,
+				  const char *path, int y)
+{
+	struct size_format format;
 	
-	return (mvwprintw(wp, my-1, 0, message) == ERR || 
-		mvwchgat(wp, my-1, 0, -1, A_REVERSE, color_pair, NULL) == ERR) ?
-		-1 : 0;
+	format = get_proper_size_format(get_total_disk_usage(head));
+
+	return (mvwprintw(wp, y, 0, 
+			  "Path: %s\t Total disk usage: %0.2f %s\t Items: ",
+			  path, format.size_format, format.size_unit/*, 
+			  get_total_path_items(path)*/) == ERR) ? -1 : 0;
+}
+
+static int print_summary_message(WINDOW *wp, 
+				 struct doubly_list *const head, 
+				 const char *current_path)
+{
+	short cpair = COLORED_OUTPUT ? CYAN_PAIR : 0;
+	int y, x;
+
+	getmaxyx(wp, y, x);
+
+	return (summary_message(wp, head, current_path, y-1) ||
+		mvwchgat(wp, y-1, 0, -1, A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static int create_borders(WINDOW *wp)
 {
-	int max_x, max_y;
+	int mx, my;
 	
-	getmaxyx(wp, max_y, max_x);
+	getmaxyx(wp, my, mx);
 
-	return (mvwhline(wp, 1, 0, '-', max_x) == ERR || 
-		mvwhline(wp, max_y-2, 0, '-', max_x) == ERR) ? -1 : 0; 
+	return (mvwhline(wp, 1, 0, '-', mx) == ERR || 
+		mvwhline(wp, my-2, 0, '-', mx) == ERR) ? -1 : 0; 
 }
 
 /*
  * This function is for the sake of readability
- */
+*/
 static inline int restore_prev_entry_design(WINDOW *wp)
 {
-	return mvwchgat(wp, highligted_node->prev->data->curses_data->y, 0, -1,
-			A_BOLD, highligted_node->prev->data->curses_data->cpair,
-			NULL);
+	short cpair = highligted_node->prev->data->curses_data->cpair;
+	int y = highligted_node->prev->data->curses_data->y;
+	
+	return (mvwchgat(wp, y, 0, -1, A_BOLD, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 /*
@@ -246,29 +325,31 @@ static inline int restore_prev_entry_design(WINDOW *wp)
  */
 static inline int restore_next_entry_design(WINDOW *wp)
 {
-	return mvwchgat(wp, highligted_node->next->data->curses_data->y, 0, -1,
-			A_BOLD, highligted_node->next->data->curses_data->cpair,
-			NULL);
+	short cpair = highligted_node->next->data->curses_data->cpair;
+	int y = highligted_node->next->data->curses_data->y;
+	
+	return (mvwchgat(wp, y, 0, -1, A_BOLD, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static int restore_entry_design(WINDOW *wp, int key)
 {
-	if (key == KEY_DOWN && highligted_node->prev)
-		return restore_prev_entry_design(wp) == ERR ? -1 : 0;
-	else if (key == KEY_UP && highligted_node->next)
-		return restore_next_entry_design(wp) == ERR ? -1 : 0;
+	if (key == KEY_DOWN)
+		return restore_prev_entry_design(wp);
+	else if (key == KEY_UP)
+		return restore_next_entry_design(wp);
 	else	
 		return 0;
 }
 
-static inline int update_highlight_loc(WINDOW *wp, int key)
-{	
-	return (mvwchgat(wp, highligted_node->data->curses_data->y, 
-			 0, -1, A_REVERSE | A_BOLD, 0, NULL) == ERR ||
+static int update_highlight_loc(WINDOW *wp, int key)
+{
+	int y = highligted_node->data->curses_data->y;
+
+	return (mvwchgat(wp, y, 0, -1, A_REVERSE | A_BOLD, 0, NULL) == ERR ||
 	        restore_entry_design(wp, key)) ? -1 : 0;
 }
 
-static int init_highlight(WINDOW *wp, struct doubly_list *const head)
+static inline int init_highlight(WINDOW *wp, struct doubly_list *const head)
 {
 	highligted_node = head;
 	
@@ -278,10 +359,13 @@ static int init_highlight(WINDOW *wp, struct doubly_list *const head)
 /*
  * The initial display for each window
  */
-int nc_initial_display(WINDOW *wp, struct doubly_list *const head)
+int nc_initial_display(WINDOW *wp, 
+		       struct doubly_list *const head,
+		       const char *current_path)
 {
-	return (print_opening_message(wp) || print_summary_message(wp) ||
+	return (print_opening_message(wp) || 
 		create_borders(wp) || nc_display_fname(wp, head) || 
+		print_summary_message(wp, head, current_path) ||
 		init_highlight(wp, head) || wrefresh(wp) == ERR) ? -1 : 0;
 }
 
@@ -312,7 +396,7 @@ WINDOW *nc_newwin(int lines_num, int cols_num, int begin_y, int begin_x)
  * Check if c is in the navigation keys, and return the value of the 
  * operation that this key does
  */
-static int in_navigation_keys(int c)
+static inline int in_navigation_keys(int c)
 {
 	if (c == KEY_UP || c == 'k')
 		return KEY_UP;
