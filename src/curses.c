@@ -45,12 +45,8 @@ enum COLOR_PAIRS_NUM {
 	DEFAULT_PAIR = 6
 };
 
-struct size_format {
-	float size_format;
-	char *size_unit;
-};
+const struct doubly_list *highligted_node; 
 
-struct doubly_list *highligted_node; 
 
 
 static short get_color_pair_num(mode_t st_mode)
@@ -69,7 +65,7 @@ static short get_color_pair_num(mode_t st_mode)
 		return DEFAULT_PAIR;
 }
 
-static inline short proper_color_pair(struct stat *statbuf)
+static inline short proper_color_pair(const struct stat *statbuf)
 {
 	if (COLORED_OUTPUT && statbuf) 
 		return get_color_pair_num(statbuf->st_mode);
@@ -82,7 +78,7 @@ static inline short proper_color_pair(struct stat *statbuf)
  * the string will be slash ('/'), else the end of a string will be blank
  * character (' ').
  */
-static inline char proper_eos(struct stat *statbuf)
+static inline char proper_eos(const struct stat *statbuf)
 {
 	return (statbuf && S_ISDIR(statbuf->st_mode)) ? '/' : ' ';
 }
@@ -110,7 +106,7 @@ void nc_get_cdata_fields(struct doubly_list *head)
  * This function was created for the sake of readability (to avoid reading
  * all the struct derefrencings inside bigger functions)
  */
-static inline int attron_color(WINDOW *wp, struct doubly_list *const node)
+static inline int attron_color(WINDOW *wp, const struct doubly_list *node)
 {
 	short color_pair = node->data->curses_data->cpair;
 
@@ -121,7 +117,7 @@ static inline int attron_color(WINDOW *wp, struct doubly_list *const node)
  * This function was created for the sake of readability (to avoid reading
  * all the struct derefrencings inside bigger functions and making a mess)
  */
-static inline int print_fname(WINDOW *wp, struct doubly_list *const node) 
+static inline int print_fname(WINDOW *wp, const struct doubly_list *node) 
 {
 	const char *name = node->data->file_data->fname; 
 	char eos = node->data->curses_data->eos;
@@ -130,9 +126,9 @@ static inline int print_fname(WINDOW *wp, struct doubly_list *const node)
 	return (mvwprintw(wp, y, 0, "%s%c\n", name, eos) == ERR) ? -1 : 0;
 }
 
-static int display_fname_color(WINDOW *wp, struct doubly_list *const head)
+static int display_fname_color(WINDOW *wp, const struct doubly_list *head)
 {
-	struct doubly_list *current;
+	const struct doubly_list *current;
 
 	for (current=head; current; current=current->next) {
 		if (attron_color(wp, current))
@@ -144,9 +140,9 @@ static int display_fname_color(WINDOW *wp, struct doubly_list *const head)
 	return (wattron(wp, COLOR_PAIR(DEFAULT_PAIR)) == ERR) ? -1 : 0;
 }
 
-static int display_fname_no_color(WINDOW *wp, struct doubly_list *const head)
+static int display_fname_no_color(WINDOW *wp, const struct doubly_list *head)
 {
-	struct doubly_list *current;
+	const struct doubly_list *current;
 
 	for (current=head; current; current=current->next)
 		if (print_fname(wp, current))
@@ -154,7 +150,7 @@ static int display_fname_no_color(WINDOW *wp, struct doubly_list *const head)
 	return 0;
 }
 
-int nc_display_fname(WINDOW *wp, struct doubly_list *const head) 
+int nc_display_fname(WINDOW *wp, const struct doubly_list *head) 
 {
 	if (COLORED_OUTPUT)
 		return display_fname_color(wp, head);
@@ -172,7 +168,7 @@ static inline int init_color_pairs()
 	        init_pair(DEFAULT_PAIR, -1,            -1) == ERR) ? -1 : 0;
 }
 
-static int start_ncurses_colors()
+static inline int start_ncurses_colors()
 {
 	return (use_default_colors() == ERR ||
 	        start_color() == ERR ||
@@ -218,76 +214,22 @@ static int print_opening_message(WINDOW *wp)
 	        mvwchgat(wp, 0, 0, -1, A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
 }
 
-static off_t get_total_disk_usage(struct doubly_list *const head)
-{
-	struct doubly_list *current;
-	off_t total;
-
-	total = 0;
-
-	for (current=head; current; current=current->next)
-		if (current->data->file_data->fstatus)
-			total += current->data->file_data->fstatus->st_size;
-	return total;
-}
-
-static struct size_format proper_size_format(float size, char *unit)
-{
-	struct size_format retval;
-
-	retval.size_format = size;
-	retval.size_unit = unit;
-
-	return retval;
-}
-
-static inline float bytes_to_gb(off_t bytes)
-{
-	return bytes / 1000000000.0;
-}
-
-static inline float bytes_to_mb(off_t bytes)
-{
-	return bytes / 1000000.0;
-}
-
-static inline float bytes_to_kb(off_t bytes)
-{
-	return bytes / 1000.0;
-}
-
-static struct size_format get_proper_size_format(off_t bytes)
-{
-	const off_t gb = 1000000000;
-	const off_t mb = 1000000;
-	const off_t kb = 1000;
-
-	if (bytes >= gb)
-		return proper_size_format(bytes_to_gb(bytes), "GB");
-	else if (bytes >= mb)
-		return proper_size_format(bytes_to_mb(bytes), "MB");
-	else if (bytes >= kb)
-		return proper_size_format(bytes_to_kb(bytes), "KB");
-	else
-		return proper_size_format(bytes, "B");
-}
-
-static inline int summary_message(WINDOW *wp, 
-				  struct doubly_list *const head,
-				  const char *path, int y)
+static int summary_message(WINDOW *wp, 
+			   const struct doubly_list *head,
+			   const char *path, int y)
 {
 	struct size_format format;
 	
 	format = get_proper_size_format(get_total_disk_usage(head));
 
 	return (mvwprintw(wp, y, 0, 
-			  "Path: %s\t Total disk usage: %0.2f %s\t Items: ",
-			  path, format.size_format, format.size_unit/*, 
-			  get_total_path_items(path)*/) == ERR) ? -1 : 0;
+			 "Path: %s \t Disk Usage: %0.2f %s", 
+			 path, format.size_format, 
+			 format.size_unit) == ERR) ? -1 : 0;
 }
 
 static int print_summary_message(WINDOW *wp, 
-				 struct doubly_list *const head, 
+				 const struct doubly_list *head, 
 				 const char *current_path)
 {
 	short cpair = COLORED_OUTPUT ? CYAN_PAIR : 0;
@@ -296,7 +238,8 @@ static int print_summary_message(WINDOW *wp,
 	getmaxyx(wp, y, x);
 
 	return (summary_message(wp, head, current_path, y-1) ||
-		mvwchgat(wp, y-1, 0, -1, A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
+		mvwchgat(wp, y-1, 0, -1, 
+			 A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static int create_borders(WINDOW *wp)
@@ -349,7 +292,7 @@ static int update_highlight_loc(WINDOW *wp, int key)
 	        restore_entry_design(wp, key)) ? -1 : 0;
 }
 
-static inline int init_highlight(WINDOW *wp, struct doubly_list *const head)
+static inline int init_highlight(WINDOW *wp, const struct doubly_list *head)
 {
 	highligted_node = head;
 	
@@ -360,7 +303,7 @@ static inline int init_highlight(WINDOW *wp, struct doubly_list *const head)
  * The initial display for each window
  */
 int nc_initial_display(WINDOW *wp, 
-		       struct doubly_list *const head,
+		       const struct doubly_list *head,
 		       const char *current_path)
 {
 	return (print_opening_message(wp) || 

@@ -29,6 +29,10 @@ struct doubly_list {
 	struct doubly_list *next;
 };
 
+struct size_format {
+	float size_format;
+	char *size_unit;
+};
 
 void *alloc_doubly_list(size_t, size_t);
 void free_doubly_list(struct doubly_list *);

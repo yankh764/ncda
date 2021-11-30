@@ -25,6 +25,7 @@
 
 /* Necessary static functions prototype */
 static int rm_dir_r(const char *);
+static off_t get_dir_size(const char *);
 
 
 static inline void free_and_null(void **ptr)
@@ -159,14 +160,19 @@ static inline bool is_dot_entry(const char *entry_name)
 		strcmp(entry_name, "..") == 0);
 }
 
+static inline void connect_nodes(struct doubly_list *current, 
+				 struct doubly_list *new_node)
+{
+	current->next = new_node;
+	new_node->prev = current;
+}
+
 static inline void connect_dot_entries(struct doubly_list *dot, 
 				       struct doubly_list *two_dots, 
 				       struct doubly_list *head)
 {
-	dot->next = two_dots;
-	two_dots->next = head;
-	head->prev = two_dots;
-	two_dots->prev = dot;
+	connect_nodes(dot, two_dots);
+	connect_nodes(two_dots, head);
 }
 
 static struct doubly_list *prepend_dot_entries(const char *dir_path, 
@@ -183,13 +189,6 @@ static struct doubly_list *prepend_dot_entries(const char *dir_path,
 		
 	}
 	return dot;
-}
-
-static inline void connect_nodes(struct doubly_list *current, 
-				 struct doubly_list *new_node)
-{
-	current->next = new_node;
-	new_node->prev = current;
 }
 
 /*
@@ -322,12 +321,132 @@ static int rm_dir_r(const char *path)
 	return retval;
 }
 
-int rm_entry(struct fdata *const data)
+static inline bool is_dir(const struct stat *statbuf)
 {
-	if (S_ISDIR(data->fstatus->st_mode))
+	return (statbuf && S_ISDIR(statbuf->st_mode));
+}
+
+int rm_entry(const struct fdata *data)
+{
+	if (is_dir(data->fstatus))
 		return rm_dir_r(data->fpath);
 	else
 		return rm_file(data->fpath);
 }
 
+off_t get_total_disk_usage(const struct doubly_list *head)
+{
+	const struct doubly_list *current;
+	off_t total;
 
+	for (current=head, total=0; current; current=current->next)
+		if (current->data->file_data->fstatus)
+			total += current->data->file_data->fstatus->st_size;
+	return total;
+}
+
+static struct size_format proper_size_format(float size, char *unit)
+{
+	struct size_format retval;
+
+	retval.size_format = size;
+	retval.size_unit = unit;
+
+	return retval;
+}
+
+static inline float bytes_to_gb(off_t bytes)
+{
+	return bytes / 1000000000.0;
+}
+
+static inline float bytes_to_mb(off_t bytes)
+{
+	return bytes / 1000000.0;
+}
+
+static inline float bytes_to_kb(off_t bytes)
+{
+	return bytes / 1000.0;
+}
+
+struct size_format get_proper_size_format(off_t bytes)
+{
+	const off_t gb = 1000000000;
+	const off_t mb = 1000000;
+	const off_t kb = 1000;
+
+	if (bytes >= gb)
+		return proper_size_format(bytes_to_gb(bytes), "GB");
+	else if (bytes >= mb)
+		return proper_size_format(bytes_to_mb(bytes), "MB");
+	else if (bytes >= kb)
+		return proper_size_format(bytes_to_kb(bytes), "KB");
+	else
+		return proper_size_format(bytes, "B");
+}
+
+static off_t _get_dir_size(DIR *dp, const char *path)
+{
+	struct dirent *entry;
+	struct stat statbuf;
+	char *entry_path;
+	off_t size;
+
+	errno = 0;
+	size = 0;
+
+	while ((entry = readdir_inf(dp))) {
+		if (is_dot_entry(entry->d_name)) {
+			//size += 4096;
+			continue;
+		}
+		if (!(entry_path = get_entry_path(path, entry->d_name)))
+			return -1;
+		if (lstat_custom_fail(entry_path, &statbuf))
+			return -1;
+		
+		size += statbuf.st_size;
+		if (S_ISDIR(statbuf.st_mode))
+			size += get_dir_size(entry_path);
+		
+		free(entry_path);
+	}
+	return size;
+}
+
+static off_t get_dir_size(const char *path)
+{
+	off_t retval;
+	DIR *dp;
+
+	retval = -1;
+
+	if ((dp = opendir_inf(path))) {
+		retval = _get_dir_size(dp, path);
+
+		if (closedir_inf(dp) && !retval)
+			retval = -1;
+	}
+	return retval;
+}
+
+/*
+ * Correct the st_size fields of all the directories in the doubly linked 
+ * list (make it to contain the actual size of the directory and it's content 
+ * rather than just the entry size).
+ */
+int correct_dirs_st_size(struct doubly_list *head)
+{
+	struct doubly_list *current;
+	off_t size;
+
+	for (current=head; current; current=current->next) 
+		if (!is_dot_entry(current->data->file_data->fname) && 
+		    is_dir(current->data->file_data->fstatus)) {
+			if ((size = get_dir_size(current->data->file_data->fpath)) == -1)
+				return -1;
+			current->data->file_data->fstatus->st_size += size;
+		}
+	return 0;
+}
