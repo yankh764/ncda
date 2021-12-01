@@ -65,10 +65,10 @@ static short get_color_pair_num(mode_t st_mode)
 		return DEFAULT_PAIR;
 }
 
-static inline short proper_color_pair(const struct stat *statbuf)
+static inline short proper_color_pair(mode_t file_mode)
 {
-	if (COLORED_OUTPUT && statbuf) 
-		return get_color_pair_num(statbuf->st_mode);
+	if (COLORED_OUTPUT) 
+		return get_color_pair_num(file_mode);
 	else 
 		return 0;
 }
@@ -78,19 +78,19 @@ static inline short proper_color_pair(const struct stat *statbuf)
  * the string will be slash ('/'), else the end of a string will be blank
  * character (' ').
  */
-static inline char proper_eos(const struct stat *statbuf)
+static inline char proper_eos(mode_t file_mode)
 {
-	return (statbuf && S_ISDIR(statbuf->st_mode)) ? '/' : ' ';
+	return S_ISDIR(file_mode) ? '/' : ' ';
 }
 
 static inline void insert_cdata_fields(struct doubly_list *ptr, int i)
 {
 	struct stat *statbuf = ptr->data->file_data->fstatus;
 
-	ptr->data->curses_data->cpair = proper_color_pair(statbuf);
+	ptr->data->curses_data->cpair = proper_color_pair(statbuf->st_mode);
 	/* The 2 = an empty line + border */
 	ptr->data->curses_data->y = i + 2;
-	ptr->data->curses_data->eos = proper_eos(statbuf);
+	ptr->data->curses_data->eos = proper_eos(statbuf->st_mode);
 }
 
 void nc_get_cdata_fields(struct doubly_list *head)

@@ -84,3 +84,23 @@ int rmdir_inf(const char *pathname)
 
 	return retval;
 }
+
+FILE *fopen_inf(const char *path, const char *mode)
+{
+	FILE *fp;
+
+	if (!(fp = fopen(path, mode)))
+		error(0, errno, "could not open '%s'", path);
+
+	return fp;
+}
+
+int fclose_inf(FILE *fp)
+{
+	int retval;
+
+	if ((retval = fclose(fp)))
+                error(0, errno, "could not close file");
+
+	return retval;
+}

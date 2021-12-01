@@ -1,6 +1,7 @@
 #ifndef _INFORMATIVE_H
 #define _INFORMATIVE_H
 
+#include <stdio.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -12,5 +13,7 @@ int closedir_inf(DIR *);
 struct dirent *readdir_inf(DIR *);
 int unlink_inf(const char *);
 int rmdir_inf(const char *);
+FILE *fopen_inf(const char *, const char *);
+int fclose_inf(FILE *);
 
 #endif

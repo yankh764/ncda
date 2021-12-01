@@ -82,7 +82,7 @@ static char *get_entry_path(const char *dir_path, const char *entry_name)
 /*
  * The fucntion uses lstat() to get files status but it 
  * will not consider permission denied (EACCES) error as a failure.
- */
+ *
 static int lstat_custom_fail(const char *path, struct stat *statbuf)
 {
         int retval;
@@ -91,7 +91,7 @@ static int lstat_custom_fail(const char *path, struct stat *statbuf)
                 if (errno == EACCES)
                         retval = EACCES;
         return retval;
-}
+}*/
 
 static inline void free_and_null_doubly_list(struct doubly_list **head)
 {
@@ -111,16 +111,11 @@ static int get_fdata_fields(struct fdata *ptr,
 			    const char *entry_path, size_t plen,
 			    const char *entry_name, size_t nlen)
 {
-	int ret;
-
-	if ((ret = lstat_custom_fail(entry_path, ptr->fstatus))) {
-		if (ret == -1)
-			return -1;
-		free_and_null((void **) &ptr->fstatus);
-	}
-	insert_fdata_fields(ptr, entry_name, nlen, entry_path, plen);
-
-	return 0;
+	int retval;
+	
+	if (!(retval = lstat(entry_path, ptr->fstatus)))
+		insert_fdata_fields(ptr, entry_name, nlen, entry_path, plen);
+	return retval;
 }
 
 static struct doubly_list *_get_doubly_list_node(const char *entry_path,
@@ -172,7 +167,8 @@ static inline void connect_dot_entries(struct doubly_list *dot,
 				       struct doubly_list *head)
 {
 	connect_nodes(dot, two_dots);
-	connect_nodes(two_dots, head);
+	if (head)
+		connect_nodes(two_dots, head);
 }
 
 static struct doubly_list *prepend_dot_entries(const char *dir_path, 
@@ -198,6 +194,7 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 {
         struct dirent *entry;
         struct doubly_list *new_node;
+        struct doubly_list *new_head;
         struct doubly_list *current;
         struct doubly_list *head;
         
@@ -218,7 +215,6 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 	}
 	if (errno)
 		goto err_free_doubly_list;
-
 	/* 
 	 * I want the dot entries to be the first 2 nodes 
 	 * of the doubly linked list so I skipped them in the 
@@ -226,7 +222,10 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 	 * in which file names are read in readdir(). So I decided
 	 * to prepend them to the head node at the end of the function.
 	 */
-	return prepend_dot_entries(dir_path, head);
+	if (!(new_head = prepend_dot_entries(dir_path, head)))
+		goto err_free_doubly_list;
+
+	return new_head;
 
 err_free_doubly_list:
 	if (head)
@@ -321,14 +320,9 @@ static int rm_dir_r(const char *path)
 	return retval;
 }
 
-static inline bool is_dir(const struct stat *statbuf)
-{
-	return (statbuf && S_ISDIR(statbuf->st_mode));
-}
-
 int rm_entry(const struct fdata *data)
 {
-	if (is_dir(data->fstatus))
+	if (S_ISDIR(data->fstatus->st_mode))
 		return rm_dir_r(data->fpath);
 	else
 		return rm_file(data->fpath);
@@ -340,12 +334,11 @@ off_t get_total_disk_usage(const struct doubly_list *head)
 	off_t total;
 
 	for (current=head, total=0; current; current=current->next)
-		if (current->data->file_data->fstatus)
-			total += current->data->file_data->fstatus->st_size;
+		total += current->data->file_data->fstatus->st_size;
 	return total;
 }
 
-static struct size_format proper_size_format(float size, char *unit)
+static inline struct size_format proper_size_format(float size, char *unit)
 {
 	struct size_format retval;
 
@@ -353,6 +346,11 @@ static struct size_format proper_size_format(float size, char *unit)
 	retval.size_unit = unit;
 
 	return retval;
+}
+
+static inline float bytes_to_tb(off_t bytes)
+{
+	return bytes / 1000000000000.0;
 }
 
 static inline float bytes_to_gb(off_t bytes)
@@ -372,11 +370,14 @@ static inline float bytes_to_kb(off_t bytes)
 
 struct size_format get_proper_size_format(off_t bytes)
 {
+	const off_t tb = 1000000000000;
 	const off_t gb = 1000000000;
 	const off_t mb = 1000000;
 	const off_t kb = 1000;
 
-	if (bytes >= gb)
+	if (bytes >= tb)
+		return proper_size_format(bytes_to_tb(bytes), "TB");
+	else if (bytes >= gb)
 		return proper_size_format(bytes_to_gb(bytes), "GB");
 	else if (bytes >= mb)
 		return proper_size_format(bytes_to_mb(bytes), "MB");
@@ -386,33 +387,44 @@ struct size_format get_proper_size_format(off_t bytes)
 		return proper_size_format(bytes, "B");
 }
 
+static long get_file_size(const char *path)
+{
+	FILE *fp;
+
+	if ((fp = fopen_inf(path, "r")))
+}
+
 static off_t _get_dir_size(DIR *dp, const char *path)
 {
 	struct dirent *entry;
 	struct stat statbuf;
 	char *entry_path;
 	off_t size;
+	off_t ret;
 
 	errno = 0;
 	size = 0;
 
 	while ((entry = readdir_inf(dp))) {
-		if (is_dot_entry(entry->d_name)) {
-			//size += 4096;
-			continue;
-		}
 		if (!(entry_path = get_entry_path(path, entry->d_name)))
-			return -1;
-		if (lstat_custom_fail(entry_path, &statbuf))
-			return -1;
-		
-		size += statbuf.st_size;
-		if (S_ISDIR(statbuf.st_mode))
-			size += get_dir_size(entry_path);
-		
+			break;
+		if (lstat(entry_path, &statbuf))
+			goto err_free_entry_path;
+		if (S_ISDIR(statbuf.st_mode) && !is_dot_entry(entry->d_name)) {
+			if ((ret = get_dir_size(entry_path)) == -1)
+				goto err_free_entry_path;
+			size += ret;
+		} else { 
+			size += statbuf.st_size;
+		}
 		free(entry_path);
 	}
-	return size;
+	return errno ? -1 : size;
+
+err_free_entry_path:
+	free(entry_path);
+	
+	return -1;
 }
 
 static off_t get_dir_size(const char *path)
@@ -431,22 +443,31 @@ static off_t get_dir_size(const char *path)
 	return retval;
 }
 
+static inline bool is_sock_or_pipe(mode_t file_mode)
+{
+	return S_ISFIFO(file_mode) || S_ISSOCK(file_mode);
+}
+
 /*
- * Correct the st_size fields of all the directories in the doubly linked 
- * list (make it to contain the actual size of the directory and it's content 
- * rather than just the entry size).
+ * Correct the st_size fields for all of the entries in the doubly 
+ * linked list since st_size may give false information
  */
-int correct_dirs_st_size(struct doubly_list *head)
+int correct_entries_st_size(struct doubly_list *head)
 {
 	struct doubly_list *current;
 	off_t size;
 
-	for (current=head; current; current=current->next) 
-		if (!is_dot_entry(current->data->file_data->fname) && 
-		    is_dir(current->data->file_data->fstatus)) {
+	for (current=head; current; current=current->next) {
+		if (S_ISDIR(current->data->file_data->fstatus->st_mode) &&
+		    !is_dot_entry(current->data->file_data->fname)) {
 			if ((size = get_dir_size(current->data->file_data->fpath)) == -1)
 				return -1;
-			current->data->file_data->fstatus->st_size += size;
+			current->data->file_data->fstatus->st_size = size;
+		} else if (!is_sock_or_pipe(current->data->file_data->fstatus->st_mode)) {
+			if ((size = get_file_size(current->data->file_data->fpath)) == -1)
+				return -1;
+			current->data->file_data->fstatus->st_size = size;
 		}
+	}
 	return 0;
 }

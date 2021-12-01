@@ -114,3 +114,4 @@ void free_doubly_list(struct doubly_list *head)
 	free_entry_data(head->data);
 	free(head);
 }
+
