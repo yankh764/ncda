@@ -79,20 +79,6 @@ static char *get_entry_path(const char *dir_path, const char *entry_name)
 		return get_entry_path_not_slash(dir_path, entry_name);
 }
 
-/*
- * The fucntion uses lstat() to get files status but it 
- * will not consider permission denied (EACCES) error as a failure.
- *
-static int lstat_custom_fail(const char *path, struct stat *statbuf)
-{
-        int retval;
-
-        if ((retval = lstat_inf(path, statbuf)))
-                if (errno == EACCES)
-                        retval = EACCES;
-        return retval;
-}*/
-
 static inline void free_and_null_doubly_list(struct doubly_list **head)
 {
 	free_doubly_list(*head);
@@ -254,26 +240,45 @@ static inline int rm_file(const char *path)
 	return unlink_inf(path);
 }
 
-static int _delete_entry(const char *entry_path)
+static inline int _delete_entry_use_lstat(const char *entry_path)
 {
 	struct stat statbuf;
 
-	if (lstat_inf(entry_path, &statbuf)) 
-		return -1;
-	if (S_ISDIR(statbuf.st_mode))
+	 if (lstat_inf(entry_path, &statbuf))
+		 return -1;
+	 if (S_ISDIR(statbuf.st_mode))
+		return rm_dir_r(entry_path);
+	 else
+		 return rm_file(entry_path);
+}
+
+static inline int _delete_entry_use_d_type(const char *entry_path, 
+					   unsigned char d_type)
+{
+	if (d_type == DT_DIR)
 		return rm_dir_r(entry_path);
 	else
 		return rm_file(entry_path);
 }
 
-static int delete_entry(const char *dir_path, const char *entry_name)
+static int _delete_entry(const char *entry_path, unsigned char d_type)
+{
+	if (d_type == DT_UNKNOWN)
+		return _delete_entry_use_lstat(entry_path);
+	else
+		return _delete_entry_use_d_type(entry_path, d_type);
+}
+
+static int delete_entry(const char *dir_path, 
+			const char *entry_name, 
+			unsigned char d_type)
 {
 	char *entry_path;	
 	int retval;
 	
 	retval = -1;
 	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		retval = _delete_entry(entry_path);
+		retval = _delete_entry(entry_path, d_type);
 		free(entry_path);
 	}
 	return retval;
@@ -292,7 +297,7 @@ static int _rm_dir_r(DIR *dp, const char *path)
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
-		if (delete_entry(path, entry->d_name))
+		if (delete_entry(path, entry->d_name, entry->d_type))
 			break;
 	}
 	return errno ? -1 : 0;
@@ -387,11 +392,32 @@ struct size_format get_proper_size_format(off_t bytes)
 		return proper_size_format(bytes, "B");
 }
 
-static long get_file_size(const char *path)
+static inline bool is_proc(const char *path)
 {
-	FILE *fp;
+	return (strcmp(path, "/proc") == 0);
+}
 
-	if ((fp = fopen_inf(path, "r")))
+static inline off_t _get_dir_size_use_lstat(const struct dirent *entry, 
+					    const char *entry_path)
+{
+	struct stat statbuf;
+
+	if (lstat_inf(entry_path, &statbuf))
+		return -1;
+	if (S_ISDIR(statbuf.st_mode) && !is_dot_entry(entry->d_name))
+		return get_dir_size(entry_path);
+	else	
+		return statbuf.st_size;
+
+}
+
+static inline off_t _get_dir_size_use_d_type(const struct dirent *entry,
+					     const char *entry_path)
+{
+	if (entry->d_type == DT_DIR)
+		return get_dir_size(entry_path);
+	else
+		return statbuf.st_size;
 }
 
 static off_t _get_dir_size(DIR *dp, const char *path)
@@ -404,21 +430,25 @@ static off_t _get_dir_size(DIR *dp, const char *path)
 
 	errno = 0;
 	size = 0;
-
-	while ((entry = readdir_inf(dp))) {
-		if (!(entry_path = get_entry_path(path, entry->d_name)))
-			break;
-		if (lstat(entry_path, &statbuf))
-			goto err_free_entry_path;
-		if (S_ISDIR(statbuf.st_mode) && !is_dot_entry(entry->d_name)) {
-			if ((ret = get_dir_size(entry_path)) == -1)
-				goto err_free_entry_path;
-			size += ret;
-		} else { 
-			size += statbuf.st_size;
+	/* 
+	 * Since /proc is virtual file system and owned by the kernel, 
+	 * it may be problrmatic to analayze and it could create some problems
+	 */
+	if (!is_proc(path))
+		while ((entry = readdir_inf(dp))) {
+			if (!(entry_path = get_entry_path(path, entry->d_name)))
+				break;
+			if (entry->d_type == DT_UNKNOWN) {
+				if ((ret = _get_dir_size_use_lstat(entry, entry_path)) == -1)
+					goto err_free_entry_path;
+				size += ret;	
+			} else {
+				if ((ret = _get_dir_size_use_d_type(entry, entry_path)) == -1)
+					goto err_free_entry_path;
+				size += ret;
+			}
+			free(entry_path);
 		}
-		free(entry_path);
-	}
 	return errno ? -1 : size;
 
 err_free_entry_path:
@@ -437,37 +467,40 @@ static off_t get_dir_size(const char *path)
 	if ((dp = opendir_inf(path))) {
 		retval = _get_dir_size(dp, path);
 
-		if (closedir_inf(dp) && !retval)
+		if (closedir_inf(dp) && retval != -1)
 			retval = -1;
+	} else if (errno == EACCES) {
+		retval = 0;
 	}
 	return retval;
 }
 
-static inline bool is_sock_or_pipe(mode_t file_mode)
+static inline int correct_st_size(struct fdata *ptr)
 {
-	return S_ISFIFO(file_mode) || S_ISSOCK(file_mode);
+	off_t size;
+
+	if ((size = get_dir_size(ptr->fpath)) == -1)
+		return -1;
+	ptr->fstatus->st_size += size;
+	
+	return 0;
 }
 
 /*
- * Correct the st_size fields for all of the entries in the doubly 
- * linked list since st_size may give false information
+ * Correct the st_size fields for the directories since it represents 
+ * only the entry size and not with the actual directory's content size
  */
-int correct_entries_st_size(struct doubly_list *head)
+int correct_dir_st_size(struct doubly_list *head)
 {
 	struct doubly_list *current;
-	off_t size;
+	int retval;
 
-	for (current=head; current; current=current->next) {
+	retval = 0;
+
+	for (current=head; current; current=current->next)
 		if (S_ISDIR(current->data->file_data->fstatus->st_mode) &&
-		    !is_dot_entry(current->data->file_data->fname)) {
-			if ((size = get_dir_size(current->data->file_data->fpath)) == -1)
-				return -1;
-			current->data->file_data->fstatus->st_size = size;
-		} else if (!is_sock_or_pipe(current->data->file_data->fstatus->st_mode)) {
-			if ((size = get_file_size(current->data->file_data->fpath)) == -1)
-				return -1;
-			current->data->file_data->fstatus->st_size = size;
-		}
-	}
-	return 0;
+		    !is_dot_entry(current->data->file_data->fname))
+			if ((retval = correct_st_size(current->data->file_data)))
+				break;
+	return retval;
 }

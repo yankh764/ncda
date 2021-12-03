@@ -15,5 +15,7 @@ int unlink_inf(const char *);
 int rmdir_inf(const char *);
 FILE *fopen_inf(const char *, const char *);
 int fclose_inf(FILE *);
+int fseek_inf(FILE *, long, int);
+long ftell_inf(FILE *);
 
 #endif

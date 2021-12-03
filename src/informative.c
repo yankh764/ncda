@@ -104,3 +104,23 @@ int fclose_inf(FILE *fp)
 
 	return retval;
 }
+
+int fseek_inf(FILE *fp, long offset, int whence)
+{
+	int retval;
+
+	if ((retval = fseek(fp, offset, whence)))
+		error(0, errno, "could not set the file position indicator");
+
+	return retval;
+}
+
+long ftell_inf(FILE *fp)
+{
+	long retval;
+
+	if ((retval = ftell(fp)) == -1)
+		error(0, errno, "could not get the value of the file position");
+
+	return retval;
+}
