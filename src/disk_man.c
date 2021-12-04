@@ -18,7 +18,6 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
 #include "informative.h" 
 #include "disk_man.h"
 
@@ -135,7 +134,7 @@ static struct doubly_list *get_doubly_list_node(const char *dir_path,
 	return node;
 }
 
-static inline bool is_dot_entry(const char *entry_name)
+bool is_dot_entry(const char *entry_name)
 {
 	return (strcmp(entry_name, ".") == 0 ||
 		strcmp(entry_name, "..") == 0);
@@ -155,6 +154,22 @@ static inline void connect_dot_entries(struct doubly_list *dot,
 	connect_nodes(dot, two_dots);
 	if (head)
 		connect_nodes(two_dots, head);
+}
+
+static inline int ignore_eacces()
+{
+	errno = 0;
+	return 0;
+}
+
+static int lstat_custom_fail(const char *path, struct stat *statbuf)
+{
+        int retval;
+
+        if ((retval = lstat_inf(path, statbuf)))
+                if (errno == EACCES)
+                        retval = ignore_eacces();
+        return retval;
 }
 
 static struct doubly_list *prepend_dot_entries(const char *dir_path, 
@@ -192,11 +207,11 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 			continue;
 		if (!(new_node = get_doubly_list_node(dir_path, entry->d_name)))
 			goto err_free_doubly_list;
-		if (!head) {
-			current = head = new_node;
-		} else {
+		if (head) {
 			connect_nodes(current, new_node);
 			current = current->next;
+		} else {
+			current = head = new_node;
 		}
 	}
 	if (errno)
@@ -392,17 +407,12 @@ struct size_format get_proper_size_format(off_t bytes)
 		return proper_size_format(bytes, "B");
 }
 
-static inline bool is_proc(const char *path)
-{
-	return (strcmp(path, "/proc") == 0);
-}
-
-static inline off_t _get_dir_size_use_lstat(const struct dirent *entry, 
-					    const char *entry_path)
+static inline off_t get_size_use_lstat(const struct dirent *entry, 
+				       const char *entry_path)
 {
 	struct stat statbuf;
 
-	if (lstat_inf(entry_path, &statbuf))
+	if (lstat_custom_fail(entry_path, &statbuf))
 		return -1;
 	if (S_ISDIR(statbuf.st_mode) && !is_dot_entry(entry->d_name))
 		return get_dir_size(entry_path);
@@ -411,44 +421,30 @@ static inline off_t _get_dir_size_use_lstat(const struct dirent *entry,
 
 }
 
-static inline off_t _get_dir_size_use_d_type(const struct dirent *entry,
-					     const char *entry_path)
-{
-	if (entry->d_type == DT_DIR)
-		return get_dir_size(entry_path);
-	else
-		return statbuf.st_size;
-}
-
 static off_t _get_dir_size(DIR *dp, const char *path)
 {
 	struct dirent *entry;
-	struct stat statbuf;
 	char *entry_path;
 	off_t size;
 	off_t ret;
 
 	errno = 0;
 	size = 0;
-	/* 
-	 * Since /proc is virtual file system and owned by the kernel, 
-	 * it may be problrmatic to analayze and it could create some problems
-	 */
-	if (!is_proc(path))
-		while ((entry = readdir_inf(dp))) {
-			if (!(entry_path = get_entry_path(path, entry->d_name)))
-				break;
-			if (entry->d_type == DT_UNKNOWN) {
-				if ((ret = _get_dir_size_use_lstat(entry, entry_path)) == -1)
-					goto err_free_entry_path;
-				size += ret;	
-			} else {
-				if ((ret = _get_dir_size_use_d_type(entry, entry_path)) == -1)
-					goto err_free_entry_path;
-				size += ret;
-			}
-			free(entry_path);
+
+	while ((entry = readdir_inf(dp))) {
+		if (!(entry_path = get_entry_path(path, entry->d_name)))
+			break;
+		if (entry->d_type == DT_DIR && !is_dot_entry(entry->d_name)) {
+			if ((ret = get_dir_size(entry_path)) == -1)
+				goto err_free_entry_path;
+			size += ret;	
+		} else {
+			if ((ret = get_size_use_lstat(entry, entry_path)) == -1)
+				goto err_free_entry_path;
+			size += ret;
 		}
+		free(entry_path);
+	}
 	return errno ? -1 : size;
 
 err_free_entry_path:
@@ -470,7 +466,7 @@ static off_t get_dir_size(const char *path)
 		if (closedir_inf(dp) && retval != -1)
 			retval = -1;
 	} else if (errno == EACCES) {
-		retval = 0;
+		retval = ignore_eacces();
 	}
 	return retval;
 }
@@ -486,6 +482,20 @@ static inline int correct_st_size(struct fdata *ptr)
 	return 0;
 }
 
+static inline bool is_proc(const char *path)
+{
+	return (strcmp(path, "proc") == 0);
+}
+
+static inline bool is_unsupported_dir(const char *dir_name)
+{
+	/* 
+	 * Since /proc is virtual file system and owned by the kernel, 
+	 * it may be problrmatic to analayze and it could create some problems
+	 */
+	return is_proc(dir_name) || is_dot_entry(dir_name);
+}
+
 /*
  * Correct the st_size fields for the directories since it represents 
  * only the entry size and not with the actual directory's content size
@@ -499,7 +509,7 @@ int correct_dir_st_size(struct doubly_list *head)
 
 	for (current=head; current; current=current->next)
 		if (S_ISDIR(current->data->file_data->fstatus->st_mode) &&
-		    !is_dot_entry(current->data->file_data->fname))
+		    !is_unsupported_dir(current->data->file_data->fname))
 			if ((retval = correct_st_size(current->data->file_data)))
 				break;
 	return retval;

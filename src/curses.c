@@ -42,7 +42,8 @@ enum COLOR_PAIRS_NUM {
 	YELLOW_PAIR = 3,
 	CYAN_PAIR = 4,
 	MAGENTA_PAIR = 5,
-	DEFAULT_PAIR = 6
+	RED_PAIR = 6,
+	DEFAULT_PAIR = 7
 };
 
 const struct doubly_list *highligted_node; 
@@ -106,7 +107,7 @@ void nc_get_cdata_fields(struct doubly_list *head)
  * This function was created for the sake of readability (to avoid reading
  * all the struct derefrencings inside bigger functions)
  */
-static inline int attron_color(WINDOW *wp, const struct doubly_list *node)
+static inline int attron_fname_color(WINDOW *wp, const struct doubly_list *node)
 {
 	short color_pair = node->data->curses_data->cpair;
 
@@ -121,26 +122,69 @@ static inline int print_fname(WINDOW *wp, const struct doubly_list *node)
 {
 	const char *name = node->data->file_data->fname; 
 	char eos = node->data->curses_data->eos;
-	int y = node->data->curses_data->y;
+	const int y = node->data->curses_data->y;
 
-	return (mvwprintw(wp, y, 0, "%s%c\n", name, eos) == ERR) ? -1 : 0;
+
+	return (mvwprintw(wp, y, 0, "%s%c", name, eos) == ERR) ? -1 : 0;
 }
 
-static int display_fname_color(WINDOW *wp, const struct doubly_list *head)
+static inline int print_fname_color(WINDOW *wp, const struct doubly_list *node)
+{
+	return attron_fname_color(wp, node) || print_fname(wp, node);
+}
+
+static inline int attron_fsize_color(WINDOW *wp)
+{
+	return (wattron(wp, COLOR_PAIR(DEFAULT_PAIR)) == ERR) ? -1 : 0;
+}
+
+static inline int attron_fsize_unit_color(WINDOW *wp)
+{
+	return (wattron(wp, COLOR_PAIR(RED_PAIR)) == ERR) ? -1 : 0;
+}
+
+static inline int print_fsize(WINDOW *wp, float size, int y)
+{
+	return (mvwprintw(wp, y, 20, "[%0.1f]", size) == ERR) ? -1 : 0;
+}
+
+static inline int print_fsize_unit(WINDOW *wp, 
+				   const char *unit_name, 
+				   int y, int x)
+{
+	return (mvwprintw(wp, y, x, "%s", unit_name) == ERR) ? -1 : 0;
+}
+
+static int print_fusage_color(WINDOW *wp, const struct doubly_list *node)
+{
+	int y = node->data->curses_data->y;
+	struct size_format format;
+	const int x = 20;
+
+	format = get_proper_size_format(node->data->file_data->fstatus->st_size);
+
+	return attron_fsize_color(wp) || 
+	       print_fsize(wp, format.size_format, y) ||
+	       attron_fsize_unit_color(wp) || 
+	       print_fsize_unit(wp, format.size_unit, y, x);
+}
+
+static int display_entry_color(WINDOW *wp, const struct doubly_list *head)
 {
 	const struct doubly_list *current;
 
 	for (current=head; current; current=current->next) {
-		if (attron_color(wp, current))
+		if (print_fname_color(wp, current))
 			return -1;
-		if (print_fname(wp, current))
-			return -1;
+		//if (!is_dot_entry(current->data->file_data->fname))
+		//	if (print_fusage_color(wp, current))
+		//		return -1;
 	}
 	/* Reset the colors */
 	return (wattron(wp, COLOR_PAIR(DEFAULT_PAIR)) == ERR) ? -1 : 0;
 }
 
-static int display_fname_no_color(WINDOW *wp, const struct doubly_list *head)
+static int display_entry_no_color(WINDOW *wp, const struct doubly_list *head)
 {
 	const struct doubly_list *current;
 
@@ -150,12 +194,12 @@ static int display_fname_no_color(WINDOW *wp, const struct doubly_list *head)
 	return 0;
 }
 
-int nc_display_fname(WINDOW *wp, const struct doubly_list *head) 
+int nc_display_entry(WINDOW *wp, const struct doubly_list *head) 
 {
 	if (COLORED_OUTPUT)
-		return display_fname_color(wp, head);
+		return display_entry_color(wp, head);
 	else
-		return display_fname_no_color(wp, head);
+		return display_entry_no_color(wp, head);
 }
 
 static inline int init_color_pairs()
@@ -165,6 +209,7 @@ static inline int init_color_pairs()
 	        init_pair(YELLOW_PAIR,  COLOR_YELLOW,  -1) == ERR ||
 	        init_pair(CYAN_PAIR,    COLOR_CYAN,    -1) == ERR ||
 	        init_pair(MAGENTA_PAIR, COLOR_MAGENTA, -1) == ERR ||
+		init_pair(RED_PAIR,     COLOR_RED,     -1) == ERR ||
 	        init_pair(DEFAULT_PAIR, -1,            -1) == ERR) ? -1 : 0;
 }
 
@@ -214,18 +259,30 @@ static int print_opening_message(WINDOW *wp)
 	        mvwchgat(wp, 0, 0, -1, A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
 }
 
-static int summary_message(WINDOW *wp, 
-			   const struct doubly_list *head,
-			   const char *path, int y)
+static int print_path(WINDOW *wp, const char *path, int y)
 {
+	return (mvwprintw(wp, y, 0, " Path: %s", path) == ERR) ? -1 : 0;
+}
+
+static int print_usage(WINDOW *wp, const struct doubly_list *head, int y, int x)
+{
+	const char *message = "Total Disk Usage: ";
 	struct size_format format;
-	
+	size_t len;
+
+	/* 6 is the format.size_format, 1 is the space, 2 is format.size_unit */
+	len = strlen(message) + 6 + 1 + 2;
 	format = get_proper_size_format(get_total_disk_usage(head));
 
-	return (mvwprintw(wp, y, 0, 
-			 "Path: %s \t Disk Usage: %0.2f %s", 
-			 path, format.size_format, 
-			 format.size_unit) == ERR) ? -1 : 0;
+	return (mvwprintw(wp, y, x-len, "%s%0.2f %s", 
+		message, format.size_format, format.size_unit) == ERR) ? -1 : 0;
+}
+
+static inline int summary_message(WINDOW *wp, 
+				  const struct doubly_list *head,
+				  const char *path, int y, int x)
+{
+	return (print_path(wp, path, y) || print_usage(wp, head, y, x));
 }
 
 static int print_summary_message(WINDOW *wp, 
@@ -233,13 +290,14 @@ static int print_summary_message(WINDOW *wp,
 				 const char *current_path)
 {
 	short cpair = COLORED_OUTPUT ? CYAN_PAIR : 0;
+	int attrs;
 	int y, x;
 
 	getmaxyx(wp, y, x);
-
-	return (summary_message(wp, head, current_path, y-1) ||
-		mvwchgat(wp, y-1, 0, -1, 
-			 A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
+	attrs = A_REVERSE | A_BOLD;
+	
+	return (summary_message(wp, head, current_path, --y, --x) ||
+		mvwchgat(wp, y, 0, -1, attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static int create_borders(WINDOW *wp)
@@ -307,7 +365,7 @@ int nc_initial_display(WINDOW *wp,
 		       const char *current_path)
 {
 	return (print_opening_message(wp) || 
-		create_borders(wp) || nc_display_fname(wp, head) || 
+		create_borders(wp) || nc_display_entry(wp, head) || 
 		print_summary_message(wp, head, current_path) ||
 		init_highlight(wp, head) || wrefresh(wp) == ERR) ? -1 : 0;
 }
