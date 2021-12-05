@@ -8,6 +8,7 @@
 */
 
 #include <stdlib.h>
+#include "ncda.h"
 #include "informative.h"
 #include "structs.h"
 
@@ -80,12 +81,6 @@ static void free_entry_data(struct entry_data *ptr)
 	free(ptr->curses_data);
 	free_fdata(ptr->file_data);
 	free(ptr);
-}
-
-static inline void free_and_null(void **ptr)
-{
-	free(*ptr);
-	*ptr = NULL;
 }
 
 static inline void null_prev_and_next(struct doubly_list *node)

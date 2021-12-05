@@ -18,6 +18,8 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include "ncda.h"
 #include "informative.h" 
 #include "disk_man.h"
 
@@ -26,12 +28,6 @@
 static int rm_dir_r(const char *);
 static off_t get_dir_size(const char *);
 
-
-static inline void free_and_null(void **ptr)
-{
-        free(*ptr);
-        *ptr = NULL;
-}
 
 /*
  * Get entry's path in the case of dir_path being just a slash
@@ -70,7 +66,7 @@ static inline bool is_slash(const char *dir_path)
 	return (strcmp(dir_path, "/") == 0);
 }
 
-static char *get_entry_path(const char *dir_path, const char *entry_name)
+static inline char *get_entry_path(const char *dir_path, const char *entry_name)
 {
         if (is_slash(dir_path))
 		return get_entry_path_slash(entry_name);
@@ -78,7 +74,7 @@ static char *get_entry_path(const char *dir_path, const char *entry_name)
 		return get_entry_path_not_slash(dir_path, entry_name);
 }
 
-static inline void free_and_null_doubly_list(struct doubly_list **head)
+static void free_and_null_doubly_list(struct doubly_list **head)
 {
 	free_doubly_list(*head);
 	*head = NULL;
@@ -92,9 +88,9 @@ static inline void insert_fdata_fields(struct fdata *ptr,
 	memcpy(ptr->fpath, path, plen);
 }
 
-static int get_fdata_fields(struct fdata *ptr, 
-			    const char *entry_path, size_t plen,
-			    const char *entry_name, size_t nlen)
+static inline int get_fdata_fields(struct fdata *ptr, 
+				   const char *entry_path, size_t plen,
+				   const char *entry_name, size_t nlen)
 {
 	int retval;
 	
@@ -120,8 +116,8 @@ static struct doubly_list *_get_doubly_list_node(const char *entry_path,
 	return node;
 }
 
-static struct doubly_list *get_doubly_list_node(const char *dir_path, 
-						const char *entry_name) 
+static inline struct doubly_list *get_doubly_list_node(const char *dir_path, 
+						       const char *entry_name) 
 {
 	struct doubly_list *node;
 	char *entry_path;
@@ -134,12 +130,6 @@ static struct doubly_list *get_doubly_list_node(const char *dir_path,
 	return node;
 }
 
-bool is_dot_entry(const char *entry_name)
-{
-	return (strcmp(entry_name, ".") == 0 ||
-		strcmp(entry_name, "..") == 0);
-}
-
 static inline void connect_nodes(struct doubly_list *current, 
 				 struct doubly_list *new_node)
 {
@@ -147,9 +137,9 @@ static inline void connect_nodes(struct doubly_list *current,
 	new_node->prev = current;
 }
 
-static inline void connect_dot_entries(struct doubly_list *dot, 
-				       struct doubly_list *two_dots, 
-				       struct doubly_list *head)
+static void connect_dot_entries(struct doubly_list *dot, 
+				struct doubly_list *two_dots, 
+				struct doubly_list *head)
 {
 	connect_nodes(dot, two_dots);
 	if (head)
@@ -284,9 +274,9 @@ static int _delete_entry(const char *entry_path, unsigned char d_type)
 		return _delete_entry_use_d_type(entry_path, d_type);
 }
 
-static int delete_entry(const char *dir_path, 
-			const char *entry_name, 
-			unsigned char d_type)
+static inline int delete_entry(const char *dir_path, 
+			       const char *entry_name, 
+			       unsigned char d_type)
 {
 	char *entry_path;	
 	int retval;
@@ -471,7 +461,7 @@ static off_t get_dir_size(const char *path)
 	return retval;
 }
 
-static inline int correct_st_size(struct fdata *ptr)
+static int correct_st_size(struct fdata *ptr)
 {
 	off_t size;
 
