@@ -86,14 +86,14 @@ static inline char proper_eos(mode_t file_mode)
 	return S_ISDIR(file_mode) ? '/' : ' ';
 }
 
-static inline void insert_cdata_fields(struct doubly_list *ptr, int i)
+static inline void insert_cdata_fields(struct entry_data *ptr, int i)
 {
-	struct stat *statbuf = ptr->data->file_data->fstatus;
+	struct stat *statbuf = ptr->file_data->fstatus;
 
-	ptr->data->curses_data->cpair = proper_color_pair(statbuf->st_mode);
-	/* The 2 = an empty line + border */
-	ptr->data->curses_data->y = i + 2;
-	ptr->data->curses_data->eos = proper_eos(statbuf->st_mode);
+	ptr->curses_data->cpair = proper_color_pair(statbuf->st_mode);
+	/* The 2 = an empty line + a border line */
+	ptr->curses_data->y = i + 2;
+	ptr->curses_data->eos = proper_eos(statbuf->st_mode);
 }
 
 void nc_get_cdata_fields(struct doubly_list *head)
@@ -102,7 +102,7 @@ void nc_get_cdata_fields(struct doubly_list *head)
 	unsigned int i;
 	
 	for (current=head, i=0; current; current=current->next, i++)
-		insert_cdata_fields(current, i);
+		insert_cdata_fields(current->data, i);
 }
 
 static inline int attron_fname_color(WINDOW *wp, short color_pair)
@@ -115,22 +115,39 @@ static inline int attroff_fname_color(WINDOW *wp, short color_pair)
 	return (wattroff(wp, COLOR_PAIR(color_pair)) == ERR) ? -1 : 0;
 }
 
-static int print_fname(WINDOW *wp, const struct doubly_list *node, int x) 
+static inline int _print_fname(WINDOW *wp, const char *fname, 
+			       char eos, int y, int x) 
 {
-	const char *name = node->data->file_data->fname; 
-	char eos = node->data->curses_data->eos;
-	int y = node->data->curses_data->y;
-
-	return (mvwprintw(wp, y, x, "%s%c", name, eos) == ERR) ? -1 : 0;
+	return (mvwprintw(wp, y, x, "%s%c", fname, eos) == ERR) ? -1 : 0;
 }
 
-static inline int print_fname_color(WINDOW *wp, 
-				    const struct doubly_list *node, 
-				    int x)
+/*
+ * In case of success it returns the current x coordinate
+ */
+static int print_fname(WINDOW *wp, const struct doubly_list *node, int x)
 {
-	return attron_fname_color(wp, node->data->curses_data->cpair) || 
-	       print_fname(wp, node, x) || 
-	       attroff_fname_color(wp, node->data->curses_data->cpair) ? -1 : 0;
+	const char *name = node->data->file_data->fname;
+	char eos = node->data->curses_data->eos;
+	int y = node->data->curses_data->y;
+	int curx;
+
+	if (_print_fname(wp, name, eos, y, x))
+		return -1;
+	return ((curx = getcurx(wp)) == ERR) ? -1 : curx;
+}
+
+static int print_fname_color(WINDOW *wp, const struct doubly_list *node, int x)
+{
+	short color_pair = node->data->curses_data->cpair;
+	int curx;
+
+	if (attron_fname_color(wp, color_pair))
+		return -1;
+	if ((curx = print_fname(wp, node, x)) == -1)
+		return -1;
+	if (attroff_fname_color(wp, color_pair))
+		return -1;
+	return curx;
 }
 
 static char get_first_mode_bit(mode_t fmode)
@@ -151,6 +168,22 @@ static char get_first_mode_bit(mode_t fmode)
 		return '-';
 }
 
+static int _print_fmodes(WINDOW *wp, mode_t fmode, int y, int x)
+{
+	return (mvwprintw(wp, y, x, "%c%c%c%c%c%c%c%c%c%c",
+			      get_first_mode_bit(fmode),
+			      (fmode & S_IRUSR) ? 'r' : '-',
+			      (fmode & S_IWUSR) ? 'w' : '-',
+			      (fmode & S_IXUSR) ? 'x' : '-',
+			      (fmode & S_IRGRP) ? 'r' : '-',
+			      (fmode & S_IWGRP) ? 'w' : '-',
+			      (fmode & S_IXGRP) ? 'x' : '-',
+			      (fmode & S_IROTH) ? 'r' : '-',
+			      (fmode & S_IWOTH) ? 'w' : '-',
+			      (fmode & S_IXOTH) ? 'x' : '-') == ERR) ? -1 : 0;
+
+}
+
 /*
  * In case of success it returns the current x coordinate
  */
@@ -158,38 +191,30 @@ static int print_fmodes(WINDOW *wp, const struct doubly_list *node)
 {
 	mode_t fmode = node->data->file_data->fstatus->st_mode;
 	int y = node->data->curses_data->y;
+	int curx;
 
-	return (mvwprintw(wp, y, 0, "[%c%c%c%c%c%c%c%c%c%c]", 
-			  get_first_mode_bit(fmode), 
-			  (fmode & S_IRUSR) ? 'r' : '-',
-			  (fmode & S_IWUSR) ? 'w' : '-',
-			  (fmode & S_IXUSR) ? 'x' : '-',
-			  (fmode & S_IRGRP) ? 'r' : '-',
-			  (fmode & S_IWGRP) ? 'w' : '-',
-			  (fmode & S_IXGRP) ? 'x' : '-',
-			  (fmode & S_IROTH) ? 'r' : '-',
-			  (fmode & S_IWOTH) ? 'w' : '-',
-			  (fmode & S_IXOTH) ? 'x' : '-') == ERR) ? -1 : 0
+	if (_print_fmodes(wp, fmode, y, 0))
+		return -1;
+	if ((curx = getcurx(wp)) == ERR)
+		return -1;
+	return curx;
 }
 
-static inline int dye_einfo_color(WINDOW *wp, int y)
+static inline int dye_einfo_color(WINDOW *wp, int y, int x, int len)
 {
-	/* The number of mode bits is equal to 10 */
-	int len = 10;
-
-	return (mvwchgat(wp, y, 1, len, A_BOLD, YELLOW_PAIR, NULL) == ERR) ? -1 : 0;
+	return (mvwchgat(wp, y, x, len, A_BOLD, YELLOW_PAIR, NULL) == ERR) ? -1 : 0;
 }
 
 static inline int print_fmodes_color(WINDOW *wp, const struct doubly_list *node)
 {
-	int retval;
+	int y = node->data->curses_data->y;
+	int curx;
 	
-	if ((retval = print_fmodes(wp, node)) == -1)
+	if ((curx = print_fmodes(wp, node)) == -1)
 		return -1;
-	else
-		return dye_einfo_color(wp, node) ? -1 : 
-
-	return (x = print_fmodes(wp, node)) == -1 || dye_einfo_color(wp, x);
+	if (dye_einfo_color(wp, y, 0, curx))
+		return -1;
+	return curx;
 }
 /*
 static inline int attron_fsize_color(WINDOW *wp)
@@ -244,12 +269,13 @@ static inline int display_entries_info(WINDOW *wp,
 static int display_entries_colorful(WINDOW *wp, const struct doubly_list *head)
 {
 	const struct doubly_list *current;
+	int curx = 0;
 
 	for (current=head; current; current=current->next) {
 		if (!is_dot_entry(current->data->file_data->fname))
-			if (display_entries_info_color(wp, current))
+			if ((curx = display_entries_info_color(wp, current)) == -1)
 				return -1;
-		if (print_fname_color(wp, current))
+		if (print_fname_color(wp, current, curx ? curx+1 : 11) == -1)
 			return -1;
 		//if (!is_dot_entry(current->data->file_data->fname))
 		//	if (print_fusage_color(wp, current))
@@ -261,12 +287,13 @@ static int display_entries_colorful(WINDOW *wp, const struct doubly_list *head)
 static int display_entries_uncolorful(WINDOW *wp, const struct doubly_list *head)
 {
 	const struct doubly_list *current;
+	int curx = 0;
 
 	for (current=head; current; current=current->next) {
 		if (!is_dot_entry(current->data->file_data->fname))
-			if (display_entries_info_color(wp, current))
+			if ((curx = display_entries_info(wp, current)) == -1)
 				return -1;
-		if (print_fname(wp, current))
+		if (print_fname(wp, current, curx+1))
 			return -1;
 	}
 	return 0;
