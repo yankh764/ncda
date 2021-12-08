@@ -30,8 +30,8 @@ struct doubly_list {
 };
 
 struct size_format {
-	float size_format;
-	char *size_unit;
+	float size;
+	char *unit;
 };
 
 void *alloc_doubly_list(size_t, size_t);
