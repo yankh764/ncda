@@ -428,13 +428,19 @@ static inline bool is_proc(const char *path)
 	return (strcmp(path, "proc") == 0);
 }
 
+static inline bool is_sys(const char *path)
+{
+	return (strcmp(path, "sys") == 0);
+}
+
 static inline bool is_unsupported_dir(const char *dir_name)
 {
 	/* 
-	 * Since /proc is virtual file system and owned by the kernel, 
-	 * it may be problrmatic to analayze and it could create some problems
+	 * Since /proc and /sys are virtual file systems and owned by the 
+	 * kernel, it may be problrmatic to analayze and it could create 
+	 * some problems
 	 */
-	return is_proc(dir_name) || is_dot_entry(dir_name);
+	return is_proc(dir_name) || is_sys(dir_name) || is_dot_entry(dir_name);
 }
 
 /*

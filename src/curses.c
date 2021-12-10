@@ -11,6 +11,7 @@
  * Defining _GNU_SOURCE macro since it achives all the desired
  * feature test macro requirements, which are:
  *     1) _DEFAULT_SOURCE || _BSD_SOURCE for file type and mode macros
+ *     2) _POSIX_C_SOURCE || _BSD_SOURCE for ctime_r()
  */
 #define _GNU_SOURCE
 #include <string.h>
@@ -48,10 +49,10 @@ enum COLOR_PAIRS_NUM {
 	DEFAULT_PAIR = 7
 };
 
-const struct doubly_list *highligted_node; 
-const int def_attrs = A_BOLD;
-const int fname_x = 9;
-
+const struct doubly_list *_highligted_node; 
+const int _def_attrs = A_BOLD;
+const int _fname_x = 12;
+const int _blank_s = 1;
 
 
 static short get_color_pair_num(mode_t st_mode)
@@ -111,7 +112,7 @@ static inline int dye_fsize(WINDOW *wp, int y, int x, int len)
 {
 	const short cpair = RED_PAIR;
 
-	return (mvwchgat(wp, y, x, len, def_attrs, cpair, NULL) == ERR) ? -1 : 0;
+	return (mvwchgat(wp, y, x, len, _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static inline int print_size(WINDOW *wp, int y, int x, float size)
@@ -134,60 +135,93 @@ static int print_fsize(WINDOW *wp, int y, int x, off_t bytes)
 	format = get_proper_size_format(bytes);
 
 	if (print_size(wp, y, x, format.size) || 
-	    print_size_unit(wp, y, x+max_size_len+1, format.unit))
+	    print_size_unit(wp, y, x+max_size_len+_blank_s, format.unit))
+		return -1;
+	if ((curx = getcurx(wp)) == ERR)
+		return -1;
+//	if (COLORED_OUTPUT)
+//		if (dye_fsize(wp, y, x, curx-x))
+//			return -1;
+	return curx;
+}
+
+/*
+static inline int dye_mtime(WINDOW *wp, int y, int x, int len)
+{
+	const short cpair = YELLOW_PAIR;
+
+	return (mvwchgat(wp, y, x, len, def_attrs, cpair, NULL) == ERR) ? -1 : 0;
+}
+
+
+static int print_mtime(WINDOW *wp, int y, int x, const struct timespec tm)
+{
+	*
+	 * Accordind to the man ctime(3) the buffer 
+	 * should have room for at least 26 bytes
+	 *
+	char time_buf[30];
+	int curx;
+
+	ctime_r(&tm.tv_sec, time_buf);
+	if (mvwprintw(wp, y, x, "%s", time_buf) == ERR)
 		return -1;
 	if ((curx = getcurx(wp)) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
-		if (dye_fsize(wp, y, x, curx-x))
+		if (dye_mtime(wp, y, curx, curx-x))
 			return -1;
 	return curx;
+}
+*/
+
+static int print_separator(WINDOW *wp, int y, int x)
+{
+	return mvwprintw(wp, y, x, "|") == ERR ? -1 : 0;
 }
 
 static inline int dye_fname(WINDOW *wp, int y, int len, short cpair)
 {
-	return (mvwchgat(wp, y, fname_x, len, 
-			 def_attrs, cpair, NULL) == ERR) ? -1 : 0;
+	return (mvwchgat(wp, y, _fname_x, len, 
+			 _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static int print_fname(WINDOW *wp, int y, const char *name, char eos, short cpair)
 {
 	int curx;
 
-	if (mvwprintw(wp, y, fname_x, "%s%c", name, eos) == ERR)
+	if (mvwprintw(wp, y, _fname_x, "%s%c", name, eos) == ERR)
 		return -1;
 	if ((curx = getcurx(wp)) == ERR)
 		return -1;
 	if (cpair)
-		if (dye_fname(wp, y, curx-fname_x, cpair))
+		if (dye_fname(wp, y, curx-_fname_x, cpair))
 			return -1; 
 	return curx;
-}
-
-static int print_st_mtim(WINDOW *wp, int y, int x, const struct timespec tm)
-{
-	int curx;
 }
 
 static inline int display_entries_info(WINDOW *wp,
 				       const struct doubly_list *node)
 {
-	const struct timespec tm = node->data->file_data->fstatus->st_mtime;
+//	const struct timespec tm = node->data->file_data->fstatus->st_mtim;
 	const off_t fsize = node->data->file_data->fstatus->st_size;
 	const short color_pair = node->data->curses_data->cpair;
 	const char *name = node->data->file_data->fname;
 	const char eos = node->data->curses_data->eos;
 	const int y = node->data->curses_data->y;
+	const int separator_x = 
 	const int begin_x = 0;
 	int curx;
 
 	if (!is_dot_entry(name)) {
-		if ((curx = print_fsize(wp, y, begin_x, fsize) == -1))
+		if ((curx = print_fsize(wp, y, begin_x, fsize)) == -1)
 			return -1;
-		if ((curx = print_st_mtim(wp, y, curx+1, tm)) == -1)
+		if ((curx = print_separator(wp, y, curx+_blank_s*2)) == -1)
 			return -1;
+//		if ((curx = print_mtime(wp, y, curx+1, tm)) == -1)
+//			return -1;
 	}
-	if ((curx = print_fname(wp, y, name, eos, color_pair) == -1))
+	if ((curx = print_fname(wp, y, name, eos, color_pair)) == -1)
 		return -1;
 	return 0;
 }
@@ -234,7 +268,7 @@ static int start_color_if_supported()
 static int init_local_setup(WINDOW *wp)
 {
 	return (keypad(wp, TRUE) == ERR || 
-		wattrset(wp, def_attrs) == ERR) ? -1 : 0;
+		wattrset(wp, _def_attrs) == ERR) ? -1 : 0;
 }
 
 /*
@@ -318,9 +352,9 @@ static int create_borders(WINDOW *wp)
 */
 static inline int restore_prev_entry_design(WINDOW *wp)
 {
-	const short cpair = highligted_node->prev->data->curses_data->cpair;
-	const char *name = highligted_node->prev->data->file_data->fname;
-	const int y = highligted_node->prev->data->curses_data->y;
+	const short cpair = _highligted_node->prev->data->curses_data->cpair;
+	const char *name = _highligted_node->prev->data->file_data->fname;
+	const int y = _highligted_node->prev->data->curses_data->y;
 	const int len = strlen(name) + 1;
 	
 	return (mvwchgat(wp, y, 0, -1, A_BOLD, 0, NULL) == ERR || 
@@ -332,9 +366,9 @@ static inline int restore_prev_entry_design(WINDOW *wp)
  */
 static inline int restore_next_entry_design(WINDOW *wp)
 {
-	const short cpair = highligted_node->next->data->curses_data->cpair;
-	const char *name = highligted_node->next->data->file_data->fname;
-	const int y = highligted_node->next->data->curses_data->y;
+	const short cpair = _highligted_node->next->data->curses_data->cpair;
+	const char *name = _highligted_node->next->data->file_data->fname;
+	const int y = _highligted_node->next->data->curses_data->y;
 	const int len = strlen(name) + 1;
 	
 	return (mvwchgat(wp, y, 0, -1, A_BOLD, 0, NULL) == ERR || 
@@ -353,7 +387,7 @@ static inline int restore_entry_design(WINDOW *wp, int key)
 
 static inline int update_highlight_loc(WINDOW *wp, int key)
 {
-	int y = highligted_node->data->curses_data->y;
+	int y = _highligted_node->data->curses_data->y;
 
 	return (mvwchgat(wp, y, 0, -1, A_REVERSE | A_BOLD, 0, NULL) == ERR ||
 	        restore_entry_design(wp, key)) ? -1 : 0;
@@ -361,7 +395,7 @@ static inline int update_highlight_loc(WINDOW *wp, int key)
 
 static int init_highlight(WINDOW *wp, const struct doubly_list *head)
 {
-	highligted_node = head;
+	_highligted_node = head;
 	
 	return update_highlight_loc(wp, '\0');
 }
@@ -418,10 +452,10 @@ static inline int in_navigation_keys(int c)
 
 static inline int change_highlight_loc(WINDOW *wp, int key)
 {
-	if (key == KEY_DOWN && highligted_node->next)
-		highligted_node = highligted_node->next;
-	else if (key == KEY_UP && highligted_node->prev)
-		highligted_node = highligted_node->prev;
+	if (key == KEY_DOWN && _highligted_node->next)
+		_highligted_node = _highligted_node->next;
+	else if (key == KEY_UP && _highligted_node->prev)
+		_highligted_node = _highligted_node->prev;
 
 	return (update_highlight_loc(wp, key) || wrefresh(wp) == ERR) ? -1 : 0;
 }
