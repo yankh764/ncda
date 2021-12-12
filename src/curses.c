@@ -51,8 +51,7 @@ enum COLOR_PAIRS_NUM {
 
 const struct doubly_list *_highligted_node; 
 const int _def_attrs = A_BOLD;
-const int _fname_x = 12;
-const int _blank_s = 1;
+const int _fname_x = 26;
 
 
 static short get_color_pair_num(mode_t st_mode)
@@ -108,76 +107,78 @@ void nc_get_cdata_fields(struct doubly_list *head)
 		insert_cdata_fields(current->data, i);
 }
 
-static inline int dye_fsize(WINDOW *wp, int y, int x, int len)
+static int print_separator(WINDOW *wp, int y, int x)
+{
+	const char separator = '|';
+	int curx;
+
+	if (mvwprintw(wp, y, x, "%c", separator) == ERR)
+		return -1;
+	if ((curx = getcurx(wp)) == ERR)
+		return -1;
+	return curx;
+}
+
+static inline int dye_fsize_size(WINDOW *wp, int y, int x, int len)
+{
+	const short cpair = YELLOW_PAIR;
+
+	return (mvwchgat(wp, y, x, len, _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
+}
+
+static inline int dye_fsize_unit(WINDOW *wp, int y, int x, int len)
 {
 	const short cpair = RED_PAIR;
 
 	return (mvwchgat(wp, y, x, len, _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
-static inline int print_size(WINDOW *wp, int y, int x, float size)
-{
-	return (mvwprintw(wp, y, x, "%.1f", size) == ERR) ? -1 : 0;
-}
-
-static inline int print_size_unit(WINDOW *wp, int y, int x, const char *unit)
-{
-	/* 1 is equal to the space lenght */
-	return (mvwprintw(wp, y, x, "%s", unit) == ERR) ? -1 : 0;
-}
-
 static int print_fsize(WINDOW *wp, int y, int x, off_t bytes)
 {
-	const int max_size_len = 5;
+	const int max_print_len = 8;
+	const int max_size_digits = 5;
+	const int max_unit_len = 2;
+	const int blank_s = 1;
 	struct size_format format;
 	int curx;
 
 	format = get_proper_size_format(bytes);
 
-	if (print_size(wp, y, x, format.size) || 
-	    print_size_unit(wp, y, x+max_size_len+_blank_s, format.unit))
-		return -1;
-	if ((curx = getcurx(wp)) == ERR)
-		return -1;
-//	if (COLORED_OUTPUT)
-//		if (dye_fsize(wp, y, x, curx-x))
-//			return -1;
-	return curx;
-}
-
-/*
-static inline int dye_mtime(WINDOW *wp, int y, int x, int len)
-{
-	const short cpair = YELLOW_PAIR;
-
-	return (mvwchgat(wp, y, x, len, def_attrs, cpair, NULL) == ERR) ? -1 : 0;
-}
-
-
-static int print_mtime(WINDOW *wp, int y, int x, const struct timespec tm)
-{
-	*
-	 * Accordind to the man ctime(3) the buffer 
-	 * should have room for at least 26 bytes
-	 *
-	char time_buf[30];
-	int curx;
-
-	ctime_r(&tm.tv_sec, time_buf);
-	if (mvwprintw(wp, y, x, "%s", time_buf) == ERR)
+	if (mvwprintw(wp, y, x, "%5.1f %s", format.size, format.unit) == ERR)
 		return -1;
 	if ((curx = getcurx(wp)) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
-		if (dye_mtime(wp, y, curx, curx-x))
+		if (dye_fsize_size(wp, y, x, curx-x-max_unit_len) || 
+		    dye_fsize_unit(wp, y, x+max_size_digits+blank_s, curx-x-max_size_digits))
 			return -1;
-	return curx;
+	return print_separator(wp, y, x+max_print_len+blank_s);
 }
-*/
 
-static int print_separator(WINDOW *wp, int y, int x)
+static inline int dye_mtime(WINDOW *wp, int y, int x, int len)
 {
-	return mvwprintw(wp, y, x, "|") == ERR ? -1 : 0;
+	const short cpair = YELLOW_PAIR;
+
+	return (mvwchgat(wp, y, x, len, _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
+}
+
+static int print_mtime(WINDOW *wp, int y, int x, time_t mtime)
+{
+	const int full_len = 11;
+	const int blank_s = 1;
+	char *buf;
+	int curx;
+
+	if(!(buf = get_mtime_str(mtime)))
+		;//goto err_out;
+	if (mvwprintw(wp, y, x, "%s", buf) == ERR)
+		;//goto err_free_buf;
+	if ((curx = getcurx(wp)) == ERR)
+		;//goto err_free_buf;
+	if (COLORED_OUTPUT)
+		if (dye_mtime(wp, y, curx, curx-x))
+			;//goto err_free_buf;
+	return print_separator(wp, y, x+full_len+blank_s);
 }
 
 static inline int dye_fname(WINDOW *wp, int y, int len, short cpair)
@@ -203,23 +204,21 @@ static int print_fname(WINDOW *wp, int y, const char *name, char eos, short cpai
 static inline int display_entries_info(WINDOW *wp,
 				       const struct doubly_list *node)
 {
-//	const struct timespec tm = node->data->file_data->fstatus->st_mtim;
+	const time_t mtime = node->data->file_data->fstatus->st_mtim.tv_sec;
 	const off_t fsize = node->data->file_data->fstatus->st_size;
 	const short color_pair = node->data->curses_data->cpair;
 	const char *name = node->data->file_data->fname;
 	const char eos = node->data->curses_data->eos;
 	const int y = node->data->curses_data->y;
-	const int separator_x = 
+	const int blank_s = 1;
 	const int begin_x = 0;
 	int curx;
 
 	if (!is_dot_entry(name)) {
 		if ((curx = print_fsize(wp, y, begin_x, fsize)) == -1)
 			return -1;
-		if ((curx = print_separator(wp, y, curx+_blank_s*2)) == -1)
+		if ((curx = print_mtime(wp, y, curx+blank_s, mtime)) == -1)
 			return -1;
-//		if ((curx = print_mtime(wp, y, curx+1, tm)) == -1)
-//			return -1;
 	}
 	if ((curx = print_fname(wp, y, name, eos, color_pair)) == -1)
 		return -1;

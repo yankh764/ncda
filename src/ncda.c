@@ -7,8 +7,16 @@
 ---------------------------------------------------------
 */
 
+/*
+ * Defining _GNU_SOURCE macro since it achives all the desired
+ * feature test macro requirements, which are:
+ *     1) _XOPEN_SOURCE >= 500 || _ISOC99_SOURCE for snprintf()
+ */
+#define _GNU_SOURCE
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "informative.h"
 #include "ncda.h"
 
 
@@ -73,3 +81,100 @@ struct size_format get_proper_size_format(off_t bytes)
 		return proper_size_format(bytes, "B");
 }
 
+static inline void remove_plural_s(char *str)
+{
+	size_t len;
+
+	len = strlen(str);
+	str[--len] = '\0';
+}
+
+static char *_mtime_str(unsigned int num, char *period)
+{
+	char *retval;
+	size_t size;	
+
+	if (num == 1)
+		remove_plural_s(period);
+	/* 2 = space + null byte */
+	size = sizeof(unsigned int) + strlen(period) + 2;
+	
+	if ((retval = malloc_inf(size)))
+		snprintf(retval, size, "%d %s", num, period);
+	return retval;
+}
+
+static inline char *mtime_str_century(unsigned int num)
+{
+	char period[] = "centuries";
+
+	return _mtime_str(num, period);
+}
+
+static inline char *mtime_str_decade(unsigned int num)
+{
+	char period[] = "decades";
+
+	return _mtime_str(num, period);
+}
+
+static inline char *mtime_str_year(unsigned int num)
+{
+	char period[] = "years";
+
+	return _mtime_str(num, period);
+}
+
+static inline char *mtime_str_month(unsigned int num)
+{
+	char period[] = "months";
+
+	return _mtime_str(num, period);
+}
+
+static inline char *mtime_str_week(unsigned int num)
+{
+	char period[] = "weeks";
+
+	return _mtime_str(num, period);
+}
+
+static inline char *mtime_str_day(unsigned int num)
+{
+	char period[] = "days";
+
+	return _mtime_str(num, period);
+}
+
+static char *mtime_str(time_t difference)
+{
+	const time_t sec_in_day = 60 * 60 * 24;
+	const time_t century = sec_in_day * 365 * 100;
+	const time_t decade = sec_in_day * 365 * 10;
+	const time_t year = sec_in_day * 365;
+	const time_t month = sec_in_day * 30;
+	const time_t week = sec_in_day * 7;
+
+	if (difference >= century)
+		return mtime_str_century(difference/century);
+	else if (difference >= decade)
+		return mtime_str_decade(difference/decade);
+	else if (difference >= year)
+		return mtime_str_year(difference/year);
+	else if (difference >= month)
+		return mtime_str_month(difference/month);
+	else if (difference >= week)
+		return mtime_str_week(difference/week);
+	else
+		return mtime_str_day(difference/sec_in_day);
+}
+
+char *get_mtime_str(time_t mtime)
+{
+	time_t today;
+
+	if ((today = time_inf(NULL)) != -1)
+		return mtime_str(today-mtime);
+	else
+		return NULL;
+}

@@ -21,7 +21,6 @@ void *malloc_inf(size_t size)
 
         if(!(retval = malloc(size)))
                 error(0, errno, "could not allocate memory");
-        
         return retval;
 }
 
@@ -31,7 +30,6 @@ int lstat_inf(const char *path, struct stat *statbuf)
 
         if ((retval = lstat(path, statbuf)))
                 error(0, errno, "could not get status on '%s'", path);
-
         return retval;
 }
 
@@ -41,7 +39,6 @@ DIR *opendir_inf(const char *path)
 
         if (!(retval = opendir(path)))
                 error(0, errno, "could not open '%s'", path);
-
         return retval;
 }
 
@@ -51,7 +48,6 @@ int closedir_inf(DIR *dp)
 
         if ((retval = closedir(dp)))
                 error(0, errno, "could not close directory");
-
         return retval;
 }
 
@@ -61,7 +57,6 @@ struct dirent *readdir_inf(DIR *dp)
 
         if(!(retval = readdir(dp)) && errno)
                 error(0, errno, "could not read directory's entries");
-
         return retval;
 }
 
@@ -71,7 +66,6 @@ int unlink_inf(const char *pathname)
 
 	if ((retval = unlink(pathname)))
 		error(0, errno, "could not remove '%s'", pathname);
-	
 	return retval;
 }
 
@@ -81,7 +75,6 @@ int rmdir_inf(const char *pathname)
 
 	if ((retval = rmdir(pathname)))
 		error(0, errno, "could not remove '%s'", pathname);
-
 	return retval;
 }
 
@@ -91,7 +84,6 @@ FILE *fopen_inf(const char *path, const char *mode)
 
 	if (!(fp = fopen(path, mode)))
 		error(0, errno, "could not open '%s'", path);
-
 	return fp;
 }
 
@@ -101,26 +93,14 @@ int fclose_inf(FILE *fp)
 
 	if ((retval = fclose(fp)))
                 error(0, errno, "could not close file");
-
 	return retval;
 }
 
-int fseek_inf(FILE *fp, long offset, int whence)
+time_t time_inf(time_t *tloc)
 {
-	int retval;
+	time_t retval;
 
-	if ((retval = fseek(fp, offset, whence)))
-		error(0, errno, "could not set the file position indicator");
-
-	return retval;
-}
-
-long ftell_inf(FILE *fp)
-{
-	long retval;
-
-	if ((retval = ftell(fp)) == -1)
-		error(0, errno, "could not get the value of the file position");
-
+	if ((retval = time(tloc)) == -1)
+		error(0, errno, "could not get time in seconds");
 	return retval;
 }
