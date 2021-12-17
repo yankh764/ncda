@@ -130,11 +130,16 @@ static inline struct doubly_list *get_doubly_list_node(const char *dir_path,
 	return node;
 }
 
-static inline void connect_nodes(struct doubly_list *current, 
-				 struct doubly_list *new_node)
+/*
+ * The function returns the address of the new connected node
+ */
+static inline struct doubly_list *connect_nodes(struct doubly_list *current, 
+				                struct doubly_list *new_node)
 {
 	current->next = new_node;
 	new_node->prev = current;
+
+	return current->next;
 }
 
 static void connect_dot_entries(struct doubly_list *dot, 
@@ -197,12 +202,10 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 			continue;
 		if (!(new_node = get_doubly_list_node(dir_path, entry->d_name)))
 			goto err_free_doubly_list;
-		if (head) {
-			connect_nodes(current, new_node);
-			current = current->next;
-		} else {
+		if (head)
+			current = connect_nodes(current, new_node);
+		else 
 			current = head = new_node;
-		}
 	}
 	if (errno)
 		goto err_free_doubly_list;
@@ -292,7 +295,9 @@ static inline int delete_entry(const char *dir_path,
 static int _rm_dir_r(DIR *dp, const char *path)
 {
 	struct dirent *entry;
+	int retval;
 	
+	retval = 0;
 	/* 
 	 * Reset errno to 0 to distnguish between 
 	 * error and end of directory in readdir_inf() 
@@ -302,10 +307,13 @@ static int _rm_dir_r(DIR *dp, const char *path)
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
-		if (delete_entry(path, entry->d_name, entry->d_type))
-			break;
+		if ((retval = delete_entry(path, entry->d_name, entry->d_type)))
+			return -1;
 	}
-	return errno ? -1 : 0;
+	if (errno)
+		retval = -1;
+
+	return retval;
 }
 
 /*
@@ -321,11 +329,11 @@ static int rm_dir_r(const char *path)
 		/* Remove directory's content */
 		retval = _rm_dir_r(dp, path);
 		
-		if (closedir_inf(dp))
-			retval = -1;
-		if (!retval)
+		if (!closedir_inf(dp))
 			/* Remove the directory itself */
 			retval = rmdir_inf(path);
+		else
+			retval = -1;
 	}
 	return retval;
 }
@@ -348,23 +356,10 @@ off_t get_total_disk_usage(const struct doubly_list *head)
 	return total;
 }
 
-static inline off_t get_size_use_lstat(const struct dirent *entry, 
-				       const char *entry_path)
-{
-	struct stat statbuf;
-
-	if (lstat_custom_fail(entry_path, &statbuf))
-		return -1;
-	if (S_ISDIR(statbuf.st_mode) && !is_dot_entry(entry->d_name))
-		return get_dir_size(entry_path);
-	else	
-		return statbuf.st_size;
-
-}
-
 static off_t _get_dir_size(DIR *dp, const char *path)
 {
 	struct dirent *entry;
+	struct stat statbuf;
 	char *entry_path;
 	off_t size;
 	off_t ret;
@@ -373,24 +368,28 @@ static off_t _get_dir_size(DIR *dp, const char *path)
 	size = 0;
 
 	while ((entry = readdir_inf(dp))) {
+		if (is_dot_entry(entry->d_name))
+			continue;
 		if (!(entry_path = get_entry_path(path, entry->d_name)))
-			break;
-		if (entry->d_type == DT_DIR && !is_dot_entry(entry->d_name)) {
+			goto err_out;
+		if (lstat_custom_fail(entry_path, &statbuf))
+			goto err_free_entry_path;
+		if (S_ISDIR(statbuf.st_mode)) {
 			if ((ret = get_dir_size(entry_path)) == -1)
-				goto err_free_entry_path;
-			size += ret;	
-		} else {
-			if ((ret = get_size_use_lstat(entry, entry_path)) == -1)
 				goto err_free_entry_path;
 			size += ret;
 		}
+		size += statbuf.st_size;
 		free(entry_path);
 	}
-	return errno ? -1 : size;
+	if (errno)
+		goto err_out;
+	
+	return size;
 
 err_free_entry_path:
 	free(entry_path);
-	
+err_out:
 	return -1;
 }
 
@@ -414,33 +413,31 @@ static off_t get_dir_size(const char *path)
 
 static int correct_st_size(struct fdata *ptr)
 {
+	int retval;
 	off_t size;
 
+	retval = 0;
+
 	if ((size = get_dir_size(ptr->fpath)) == -1)
-		return -1;
-	ptr->fstatus->st_size += size;
+		retval = -1;
+	else
+		ptr->fstatus->st_size += size;
 	
-	return 0;
+	return retval;
 }
 
-static inline bool is_proc(const char *path)
+/*
+ * Is virtual file system (like /sys and /proc which are 
+ * directories with size of 0 when "stat"ing them)
+ */
+static inline bool is_virtfs(off_t size)
 {
-	return (strcmp(path, "proc") == 0);
+	return size == 0;
 }
 
-static inline bool is_sys(const char *path)
+static inline bool is_unsupported_dir(const struct fdata *data)
 {
-	return (strcmp(path, "sys") == 0);
-}
-
-static inline bool is_unsupported_dir(const char *dir_name)
-{
-	/* 
-	 * Since /proc and /sys are virtual file systems and owned by the 
-	 * kernel, it may be problrmatic to analayze and it could create 
-	 * some problems
-	 */
-	return is_proc(dir_name) || is_sys(dir_name) || is_dot_entry(dir_name);
+	return is_virtfs(data->fstatus->st_size) || is_dot_entry(data->fname);
 }
 
 /*
@@ -456,7 +453,7 @@ int correct_dir_st_size(struct doubly_list *head)
 
 	for (current=head; current; current=current->next)
 		if (S_ISDIR(current->data->file_data->fstatus->st_mode) &&
-		    !is_unsupported_dir(current->data->file_data->fname))
+		    !is_unsupported_dir(current->data->file_data))
 			if ((retval = correct_st_size(current->data->file_data)))
 				break;
 	return retval;

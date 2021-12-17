@@ -91,8 +91,8 @@ static inline void insert_cdata_fields(struct entry_data *ptr, int i)
 	struct stat *statbuf = ptr->file_data->fstatus;
 
 	ptr->curses_data->cpair = proper_color_pair(statbuf->st_mode);
-	/* The 2 = an empty line + a border line */
-	ptr->curses_data->y = i + 2;
+	/* The 4 = an empty line + 2 * border line + labels */
+	ptr->curses_data->y = i + 4;
 	ptr->curses_data->eos = proper_eos(statbuf->st_mode);
 }
 
@@ -153,7 +153,7 @@ static int print_fsize(WINDOW *wp, int y, int x, off_t bytes)
 	if (COLORED_OUTPUT)
 		if (dye_fsize(wp, y, x))
 			return -1;
-	return print_separator(wp, y, x+_max_print_fsize+_blank);
+	return print_separator(wp, y, x+_max_print_fsize+_sep_blank);
 }
 
 static inline int dye_mtime(WINDOW *wp, int y, int x)
@@ -181,7 +181,7 @@ static int print_mtime(WINDOW *wp, int y, int x, time_t mtime)
 			goto err_free_buf;
 	free(buf);
 
-	return print_separator(wp, y, x+_max_print_mtime+_blank);
+	return print_separator(wp, y, x+_max_print_mtime+_sep_blank);
 
 err_free_buf:
 	free(buf);
@@ -214,8 +214,8 @@ static int print_separators_only(WINDOW *wp, int y, int begin_x)
 	int x1; 
 	int x2;
 
-	x1 = begin_x + _max_print_fsize + _blank;
-	x2 = x1 + sizeof(_separator) + _blank + _max_print_mtime + _blank;
+	x1 = begin_x + _max_print_fsize + _sep_blank;
+	x2 = x1 + sizeof(_separator) + _blank + _max_print_mtime + _sep_blank;
 
 	return (print_separator(wp, y, x1) == -1 || 
 		print_separator(wp, y, x2) == -1) ? -1 : 0;
@@ -375,6 +375,19 @@ static int display_summary_message(WINDOW *wp,
 				 -1, attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
+static int display_labels(WINDOW *wp)
+{
+	const int y = 1;
+	int x;
+
+	mvwprintw(wp, y, 0, "   Size");
+	x = print_separator(wp, y, _max_print_fsize+_sep_blank);
+	mvwprintw(wp, y, x+_blank, "Modification");
+	print_separator(wp, y, x+_blank+_max_print_mtime+_sep_blank);
+
+	return 0;
+}
+
 static int create_borders(WINDOW *wp)
 {
 	const char border = '-';
@@ -384,18 +397,19 @@ static int create_borders(WINDOW *wp)
 	
 	getmaxyx(wp, max_y, max_x);
 	
+	/* 2 = line that cant be displayed + summary message */
 	max_y = max_y - 2;
 
 	return (mvwhline(wp, begin_y, begin_x, border, max_x) == ERR || 
-		mvwhline(wp, max_y, begin_x, border, max_x) == ERR) ? -1 : 0; 
+		mvwhline(wp, max_y, begin_x, border, max_x) == ERR) ? -1 : 0;
 }
 
 static int restore_entry_colors(WINDOW *wp, int y, int begin_x, short cpair)
 {
 	int x1, x2;
-
+	
 	x1 = begin_x;
-	x2 = x1 + _max_print_fsize + _blank + sizeof(_separator) + _blank;
+	x2 = x1 + _max_print_fsize + _blank + sizeof(_separator) + _sep_blank;
 
 	return (dye_fsize(wp, y, x1) || 
 		dye_mtime(wp, y, x2) ||
@@ -466,8 +480,8 @@ int nc_initial_display(WINDOW *wp,
 		       const struct doubly_list *head,
 		       const char *current_path)
 {
-	return (display_opening_message(wp) || 
-		create_borders(wp) || nc_display_entries(wp, head) || 
+	return (display_opening_message(wp) || create_borders(wp) ||
+		display_labels(wp) || nc_display_entries(wp, head) || 
 		display_summary_message(wp, head, current_path) ||
 		init_highlight(wp, head) || wrefresh(wp) == ERR) ? -1 : 0;
 }
@@ -515,6 +529,12 @@ static inline int change_highlight_loc(WINDOW *wp, int key)
 		_highligted_node = _highligted_node->next;
 	else if (key == KEY_UP && _highligted_node->prev)
 		_highligted_node = _highligted_node->prev;
+	else
+		/* 
+		 * There is no need to update the highlight 
+		 * location if it didn't change
+		 */
+		return 0;
 
 	return (update_highlight_loc(wp, key) || wrefresh(wp) == ERR) ? -1 : 0;
 }
