@@ -15,8 +15,10 @@ const int _def_attrs = A_BOLD;
 const char _separator = '|';
 const int _blank = 1;
 const int _sep_blank = 2 * _blank;
+const int _fsize_x = 0;
+const int _mtime_x = 12;
+const int _fname_x = 27;
 const int _max_print_fsize = 8;
 const int _max_print_mtime = 11;
-const int _fname_x = 27;
 
 #endif

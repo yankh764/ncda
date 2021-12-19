@@ -91,8 +91,8 @@ static inline void insert_cdata_fields(struct entry_data *ptr, int i)
 	struct stat *statbuf = ptr->file_data->fstatus;
 
 	ptr->curses_data->cpair = proper_color_pair(statbuf->st_mode);
-	/* The 4 = an empty line + 2 * border line + labels */
-	ptr->curses_data->y = i + 4;
+	/* The 2 = an empty line + labels line */
+	ptr->curses_data->y = i + 2;
 	ptr->curses_data->eos = proper_eos(statbuf->st_mode);
 }
 
@@ -105,15 +105,9 @@ void nc_get_cdata_fields(struct doubly_list *head)
 		insert_cdata_fields(current->data, i);
 }
 
-static int print_separator(WINDOW *wp, int y, int x)
+static inline int print_separator(WINDOW *wp, int y, int x)
 {
-	int curx;
-
-	if (mvwprintw(wp, y, x, "%c", _separator) == ERR)
-		return -1;
-	if ((curx = getcurx(wp)) == ERR)
-		return -1;
-	return curx;
+	return (mvwprintw(wp, y, x, "%c", _separator) == ERR) ? -1 : 0;
 }
 
 static inline int dye_val(WINDOW *wp, int y, int x, int len)
@@ -130,95 +124,98 @@ static inline int dye_unit(WINDOW *wp, int y, int x, int len)
 	return (mvwchgat(wp, y, x, len, _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
-static inline int dye_fsize(WINDOW *wp, int y, int x)
+static inline int dye_fsize(WINDOW *wp, int y)
 {
 	const int max_size_len = 5;
 	const int max_unit_len = 2;
+	int unit_x;
 
-	return (dye_val(wp, y, x, max_size_len) || 
-		dye_unit(wp, y, x+max_size_len+_blank, max_unit_len)) ? -1 : 0;
+	unit_x = _fsize_x + max_size_len + _blank;
+
+	return (dye_val(wp, y, _fsize_x, max_size_len) || 
+		dye_unit(wp, y, unit_x, max_unit_len)) ? -1 : 0;
 }
 
-static int print_fsize(WINDOW *wp, int y, int x, off_t bytes)
+static int print_fsize(WINDOW *wp, int y, off_t bytes)
 {
 	struct size_format format;
-	int curx;
+	int sep_x;
 
 	format = get_proper_size_format(bytes);
 
-	if (mvwprintw(wp, y, x, "%5.1f %s", format.size, format.unit) == ERR)
-		return -1;
-	if ((curx = getcurx(wp)) == ERR)
+	if (mvwprintw(wp, y, _fsize_x, "%5.1f %s", format.size, format.unit) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
-		if (dye_fsize(wp, y, x))
+		if (dye_fsize(wp, y))
 			return -1;
-	return print_separator(wp, y, x+_max_print_fsize+_sep_blank);
+	sep_x = _fsize_x + _max_print_fsize + _sep_blank;
+	
+	return print_separator(wp, y, sep_x);
 }
 
-static inline int dye_mtime(WINDOW *wp, int y, int x)
+static inline int dye_mtime(WINDOW *wp, int y)
 {
 	const int max_priod_len = 9;
 	const int max_num_len = 1;
+	int unit_x;
 
-	return (dye_val(wp, y, x, max_num_len) || 
-		dye_unit(wp, y, x+max_num_len+_blank, max_priod_len)) ? -1 : 0;
+	unit_x = _mtime_x + max_num_len + _blank;
+
+	return (dye_val(wp, y, _mtime_x, max_num_len) || 
+		dye_unit(wp, y, unit_x, max_priod_len)) ? -1 : 0;
 }
 
-static int print_mtime(WINDOW *wp, int y, int x, time_t mtime)
+static int print_mtime(WINDOW *wp, int y, time_t mtime)
 {
 	char *buf;
-	int curx;
+	int sep_x;
 
 	if(!(buf = get_mtime_str(mtime)))
 		return -1;
-	if (mvwprintw(wp, y, x, "%s", buf) == ERR)
-		goto err_free_buf;
-	if ((curx = getcurx(wp)) == ERR)
+	if (mvwprintw(wp, y, _mtime_x, "%s", buf) == ERR)
 		goto err_free_buf;
 	if (COLORED_OUTPUT)
-		if (dye_mtime(wp, y, x))
+		if (dye_mtime(wp, y))
 			goto err_free_buf;
 	free(buf);
-
-	return print_separator(wp, y, x+_max_print_mtime+_sep_blank);
+	sep_x = _mtime_x+_max_print_mtime+_sep_blank;
+	
+	return print_separator(wp, y, sep_x);
 
 err_free_buf:
 	free(buf);
-	
 	return -1;
 }
 
-static inline int dye_fname(WINDOW *wp, int y, int len, short cpair)
+static inline int dye_fname(WINDOW *wp, int y, short cpair)
 {
-	return (mvwchgat(wp, y, _fname_x, len, 
+	/* End of line */
+	const int eol = -1;
+
+	return (mvwchgat(wp, y, _fname_x, eol, 
 			 _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static int print_fname(WINDOW *wp, int y, const char *name, char eos, short cpair)
 {
-	int curx;
-
 	if (mvwprintw(wp, y, _fname_x, "%s%c", name, eos) == ERR)
 		return -1;
-	if ((curx = getcurx(wp)) == ERR)
-		return -1;
 	if (cpair)
-		if (dye_fname(wp, y, curx-_fname_x, cpair))
-			return -1; 
-	return curx;
+		if (dye_fname(wp, y, cpair))
+			return -1;
+	return 0;
 }
 
-static int print_separators_only(WINDOW *wp, int y, int begin_x)
+static int print_separators_only(WINDOW *wp, int y)
 {
 	int x1; 
 	int x2;
 
-	x1 = begin_x + _max_print_fsize + _sep_blank;
-	x2 = x1 + sizeof(_separator) + _blank + _max_print_mtime + _sep_blank;
+	x1 = _fsize_x + _max_print_fsize + _sep_blank;
+	x2 = _mtime_x + _max_print_mtime + _sep_blank;
 
-	return (print_separator(wp, y, x1) == -1 || 
-		print_separator(wp, y, x2) == -1) ? -1 : 0;
+	return (print_separator(wp, y, x1) || 
+		print_separator(wp, y, x2)) ? -1 : 0;
 }
 
 static inline int display_entries_info(WINDOW *wp,
@@ -230,19 +227,17 @@ static inline int display_entries_info(WINDOW *wp,
 	const char *name = node->data->file_data->fname;
 	const char eos = node->data->curses_data->eos;
 	const int y = node->data->curses_data->y;
-	const int begin_x = 0;
-	int curx;
 
 	if (is_dot_entry(name)) {
-		if (print_separators_only(wp, y, begin_x))
+		if (print_separators_only(wp, y))
 			return -1;
 	} else {
-		if ((curx = print_fsize(wp, y, begin_x, fsize)) == -1)
+		if (print_fsize(wp, y, fsize))
 			return -1;
-		if ((curx = print_mtime(wp, y, curx+_blank, mtime)) == -1)
+		if (print_mtime(wp, y, mtime))
 			return -1;
 	}
-	return (print_fname(wp, y, name, eos, color_pair) == -1) ? -1 : 0;
+	return print_fname(wp, y, name, eos, color_pair);
 }
 
 int nc_display_entries(WINDOW *wp, const struct doubly_list *head) 
@@ -309,7 +304,6 @@ int nc_init_setup()
 static int display_opening_message(WINDOW *wp)
 {
 	const char *message = "Ncurses disk analyzer --- Press ? for help";
-	const int attrs = A_REVERSE;
 	const int begin_y = 0;
 	const int begin_x = 0;
 	short cpair;
@@ -320,19 +314,16 @@ static int display_opening_message(WINDOW *wp)
 		return -1;
 	else
 		return (mvwchgat(wp, begin_y, begin_x, 
-				 -1, attrs, cpair, NULL) == ERR) ? -1 : 0;
+				 -1, A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
 }
 
-static int print_path_summary(WINDOW *wp, 
-			      const char *path, 
-			      int max_y, int begin_x)
+static int print_path_summary(WINDOW *wp, int y, int x, const char *path)
 {
-	return (mvwprintw(wp, max_y, begin_x, "Path: %s", path) == ERR) ? -1 : 0;
+	return (mvwprintw(wp, y, x, "Path: %s", path) == ERR) ? -1 : 0;
 }
 
-static int print_usage_summary(WINDOW *wp, 
-			       const struct doubly_list *head, 
-			       int max_y, int max_x)
+static int print_usage_summary(WINDOW *wp, int y, int max_x,
+			       const struct doubly_list *head)
 {
 	const char *message = "Total Disk Usage:";
 	struct size_format format;
@@ -342,18 +333,17 @@ static int print_usage_summary(WINDOW *wp,
 	/* The 1 is because I added another digit after the floating point */
 	len = strlen(message) + _blank + _max_print_fsize + 1;
 
-	return (mvwprintw(wp, max_y, max_x-len, "%s %0.2f %s", 
+	return (mvwprintw(wp, y, max_x-len, "%s %0.2f %s", 
 			  message, format.size, format.unit) == ERR) ? -1 : 0;
 }
 
-static int summary_message(WINDOW *wp, 
-			   const struct doubly_list *head,
-			   const char *path, int max_y, int max_x)
+static int summary_message(WINDOW *wp, int y, int max_x,
+			   const struct doubly_list *head, const char *path)
 {
 	const int begin_x = 1;
 
-	return (print_path_summary(wp, path, max_y, begin_x) || 
-		print_usage_summary(wp, head, max_y, max_x)) ? -1 : 0;
+	return (print_path_summary(wp, y, begin_x, path) || 
+		print_usage_summary(wp, y, max_x, head)) ? -1 : 0;
 }
 
 static int display_summary_message(WINDOW *wp, 
@@ -362,30 +352,50 @@ static int display_summary_message(WINDOW *wp,
 {
 	const int attrs = A_REVERSE | A_BOLD;
 	const int begin_x = 0;
+	const int eol = -1;
 	int max_y, max_x;
 	short cpair;
 
 	cpair = COLORED_OUTPUT ? CYAN_PAIR : 0;
 	getmaxyx(wp, max_y, max_x);
 
-	if (summary_message(wp, head, current_path, --max_y, --max_x))
+	if (summary_message(wp, --max_y, --max_x, head, current_path))
 		return -1;
 	else 
 		return (mvwchgat(wp, max_y, begin_x, 
-				 -1, attrs, cpair, NULL) == ERR) ? -1 : 0;
+				 eol, attrs, cpair, NULL) == ERR) ? -1 : 0;
+}
+
+static int print_lables(WINDOW *wp, int y)
+{
+	const int begin_x = 3;
+
+	return (mvwprintw(wp, y, begin_x, "Size") == ERR ||
+		mvwprintw(wp, y, _mtime_x, "Modification") == ERR ||
+		mvwprintw(wp, y, _fname_x, "Entry's name") == ERR) ? -1 : 0;
+}
+
+static int print_labels_colorful(WINDOW *wp, int y)
+{
+	const int cpair = MAGENTA_PAIR;
+
+	return (wattron(wp, COLOR_PAIR(cpair)) == ERR ||
+		print_lables(wp, y) ||
+		wattroff(wp, COLOR_PAIR(cpair)) == ERR) ? -1 : 0;
 }
 
 static int display_labels(WINDOW *wp)
 {
 	const int y = 1;
-	int x;
 
-	mvwprintw(wp, y, 0, "   Size");
-	x = print_separator(wp, y, _max_print_fsize+_sep_blank);
-	mvwprintw(wp, y, x+_blank, "Modification");
-	print_separator(wp, y, x+_blank+_max_print_mtime+_sep_blank);
-
-	return 0;
+	if (COLORED_OUTPUT) {
+		if (print_labels_colorful(wp, y))
+			return -1;
+	} else {
+		if (print_lables(wp, y))
+			return 1;
+	}
+	return print_separators_only(wp, y);
 }
 
 static int create_borders(WINDOW *wp)
@@ -396,7 +406,6 @@ static int create_borders(WINDOW *wp)
 	int max_x, max_y;
 	
 	getmaxyx(wp, max_y, max_x);
-	
 	/* 2 = line that cant be displayed + summary message */
 	max_y = max_y - 2;
 
@@ -404,16 +413,11 @@ static int create_borders(WINDOW *wp)
 		mvwhline(wp, max_y, begin_x, border, max_x) == ERR) ? -1 : 0;
 }
 
-static int restore_entry_colors(WINDOW *wp, int y, int begin_x, short cpair)
+static int restore_entry_colors(WINDOW *wp, int y, short cpair)
 {
-	int x1, x2;
-	
-	x1 = begin_x;
-	x2 = x1 + _max_print_fsize + _blank + sizeof(_separator) + _sep_blank;
-
-	return (dye_fsize(wp, y, x1) || 
-		dye_mtime(wp, y, x2) ||
-		dye_fname(wp, y, -1, cpair)) ? -1 : 0;
+	return (dye_fsize(wp, y) || 
+		dye_mtime(wp, y) || 
+		dye_fname(wp, y, cpair)) ? -1 : 0;
 }
 
 static inline int restore_prev_entry_design(WINDOW *wp)
@@ -421,11 +425,12 @@ static inline int restore_prev_entry_design(WINDOW *wp)
 	const short cpair = _highligted_node->prev->data->curses_data->cpair;
 	const int y = _highligted_node->prev->data->curses_data->y;
 	const int begin_x = 0;
+	const int eol = -1;
 	
-	if (mvwchgat(wp, y, begin_x, -1, _def_attrs, 0, NULL) == ERR)
+	if (mvwchgat(wp, y, begin_x, eol, _def_attrs, 0, NULL) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
-		return restore_entry_colors(wp, y, begin_x, cpair);
+		return restore_entry_colors(wp, y, cpair);
 	else 
 		return 0;
 }
@@ -435,11 +440,12 @@ static inline int restore_next_entry_design(WINDOW *wp)
 	const short cpair = _highligted_node->next->data->curses_data->cpair;
 	const int y = _highligted_node->next->data->curses_data->y;
 	const int begin_x = 0;
+	const int eol = -1;
 	
-	if (mvwchgat(wp, y, begin_x, -1, _def_attrs, 0, NULL) == ERR)
+	if (mvwchgat(wp, y, begin_x, eol, _def_attrs, 0, NULL) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
-		return restore_entry_colors(wp, y, begin_x, cpair);
+		return restore_entry_colors(wp, y, cpair);
 	else 
 		return 0;
 }
@@ -459,11 +465,14 @@ static inline int update_highlight_loc(WINDOW *wp, int key)
 	const int y = _highligted_node->data->curses_data->y;
 	const int attrs = _def_attrs | A_REVERSE;
 	const int begin_x = 0;
+	const int eol = -1;
 
-	if (mvwchgat(wp, y, begin_x, -1, attrs, 0, NULL) == ERR)
+	if (mvwchgat(wp, y, begin_x, eol, attrs, 0, NULL) == ERR)
+		return -1;
+	if (restore_entry_design(wp, key))
 		return -1;
 	else
-		return restore_entry_design(wp, key);
+		return (wrefresh(wp) == ERR) ? -1 : 0;
 }
 
 static int init_highlight(WINDOW *wp, const struct doubly_list *head)
@@ -483,7 +492,7 @@ int nc_initial_display(WINDOW *wp,
 	return (display_opening_message(wp) || create_borders(wp) ||
 		display_labels(wp) || nc_display_entries(wp, head) || 
 		display_summary_message(wp, head, current_path) ||
-		init_highlight(wp, head) || wrefresh(wp) == ERR) ? -1 : 0;
+		init_highlight(wp, head)) ? -1 : 0;
 }
 
 static int del_and_null_win(WINDOW **wp)
@@ -536,7 +545,7 @@ static inline int change_highlight_loc(WINDOW *wp, int key)
 		 */
 		return 0;
 
-	return (update_highlight_loc(wp, key) || wrefresh(wp) == ERR) ? -1 : 0;
+	return update_highlight_loc(wp, key);
 }
 
 static inline int perform_input_operations(WINDOW *wp, int c)
