@@ -18,7 +18,6 @@
 #include <stdbool.h>
 #include "ncda.h"
 #include "disk_man.h"
-#include "const_params.h"
 #include "curses.h"
 
 /*
@@ -50,6 +49,20 @@ enum COLOR_PAIRS_NUM {
 };
 
 const struct doubly_list *_highligted_node; 
+
+
+/* Constant parameters */
+const int _def_attrs = A_BOLD;
+const int _borders_cpair = CYAN_PAIR;
+const char _separator = '|';
+const int _blank = 1;
+const int _sep_blank = 2 * _blank;
+const int _fsize_x = 0;
+const int _mtime_x = 12;
+const int _fname_x = 27;
+const int _max_print_fsize = 8;
+const int _max_print_mtime = 11;
+
 
 
 static short get_color_pair_num(mode_t st_mode)
@@ -112,28 +125,16 @@ static inline int print_separator(WINDOW *wp, int y, int x)
 
 static inline int dye_val(WINDOW *wp, int y, int x, int len)
 {
-	const short cpair = YELLOW_PAIR;
-
-	return (mvwchgat(wp, y, x, len, _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
-}
-
-static inline int dye_unit(WINDOW *wp, int y, int x, int len)
-{
-	const short cpair = RED_PAIR;
+	const short cpair = YELLOW_PAIR;;
 
 	return (mvwchgat(wp, y, x, len, _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static inline int dye_fsize(WINDOW *wp, int y)
 {
-	const int max_size_len = 5;
-	const int max_unit_len = 2;
-	int unit_x;
+	const int max_val_len = 5;
 
-	unit_x = _fsize_x + max_size_len + _blank;
-
-	return (dye_val(wp, y, _fsize_x, max_size_len) || 
-		dye_unit(wp, y, unit_x, max_unit_len)) ? -1 : 0;
+	return dye_val(wp, y, _fsize_x, max_val_len);
 }
 
 static int print_fsize(WINDOW *wp, int y, off_t bytes)
@@ -155,14 +156,9 @@ static int print_fsize(WINDOW *wp, int y, off_t bytes)
 
 static inline int dye_mtime(WINDOW *wp, int y)
 {
-	const int max_priod_len = 9;
-	const int max_num_len = 1;
-	int unit_x;
+	const int max_val_len = 1;
 
-	unit_x = _mtime_x + max_num_len + _blank;
-
-	return (dye_val(wp, y, _mtime_x, max_num_len) || 
-		dye_unit(wp, y, unit_x, max_priod_len)) ? -1 : 0;
+	return dye_val(wp, y, _mtime_x, max_val_len);
 }
 
 static int print_mtime(WINDOW *wp, int y, time_t mtime)
@@ -178,7 +174,7 @@ static int print_mtime(WINDOW *wp, int y, time_t mtime)
 		if (dye_mtime(wp, y))
 			goto err_free_buf;
 	free(buf);
-	sep_x = _mtime_x+_max_print_mtime+_sep_blank;
+	sep_x = _mtime_x + _max_print_mtime + _sep_blank;
 	
 	return print_separator(wp, y, sep_x);
 
@@ -227,7 +223,7 @@ static inline int display_entries_info(WINDOW *wp,
 	const char *name = node->data->file_data->fname;
 	const char eos = node->data->curses_data->eos;
 	const int y = node->data->curses_data->y;
-
+	
 	if (is_dot_entry(name)) {
 		if (print_separators_only(wp, y))
 			return -1;
@@ -240,16 +236,29 @@ static inline int display_entries_info(WINDOW *wp,
 	return print_fname(wp, y, name, eos, color_pair);
 }
 
-int nc_display_entries(WINDOW *wp, const struct doubly_list *head) 
+static inline bool is_between_page_borders(WINDOW *wp, int current_y)
+{
+	int max_y;
+
+	/* 3 = line that cant be displayed + summary message + border line */
+	max_y = getmaxy(wp) - 3;
+
+	return (max_y >= current_y);
+}
+
+int nc_display_entries(WINDOW *wp, const struct doubly_list *ptr) 
 {
 	const struct doubly_list *current;
 	int retval;
 
 	retval = 0;
 
-	for (current=head; current; current=current->next)
+	for (current=ptr; current; current=current->next) {
+		if (!is_between_page_borders(wp, current->data->curses_data->y))
+			break;
 		if ((retval = display_entries_info(wp, current)) == -1)
 			break;
+	}
 	return retval;
 }
 
@@ -306,15 +315,16 @@ static int display_opening_message(WINDOW *wp)
 	const char *message = "Ncurses disk analyzer --- Press ? for help";
 	const int begin_y = 0;
 	const int begin_x = 0;
+	const int eol = -1;
 	short cpair;
 
-	cpair = COLORED_OUTPUT ? CYAN_PAIR : 0;
+	cpair = COLORED_OUTPUT ? _borders_cpair : 0;
 
 	if (mvwprintw(wp, begin_y, begin_x, "%s", message) == ERR)
 		return -1;
 	else
-		return (mvwchgat(wp, begin_y, begin_x, 
-				 -1, A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
+		return (mvwchgat(wp, begin_y, begin_x, eol,
+				 A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static int print_path_summary(WINDOW *wp, int y, int x, const char *path)
@@ -337,13 +347,13 @@ static int print_usage_summary(WINDOW *wp, int y, int max_x,
 			  message, format.size, format.unit) == ERR) ? -1 : 0;
 }
 
-static int summary_message(WINDOW *wp, int y, int max_x,
+static int summary_message(WINDOW *wp, int y, int x,
 			   const struct doubly_list *head, const char *path)
 {
 	const int begin_x = 1;
 
 	return (print_path_summary(wp, y, begin_x, path) || 
-		print_usage_summary(wp, y, max_x, head)) ? -1 : 0;
+		print_usage_summary(wp, y, x, head)) ? -1 : 0;
 }
 
 static int display_summary_message(WINDOW *wp, 
@@ -356,7 +366,7 @@ static int display_summary_message(WINDOW *wp,
 	int max_y, max_x;
 	short cpair;
 
-	cpair = COLORED_OUTPUT ? CYAN_PAIR : 0;
+	cpair = COLORED_OUTPUT ? _borders_cpair : 0;
 	getmaxyx(wp, max_y, max_x);
 
 	if (summary_message(wp, --max_y, --max_x, head, current_path))
@@ -377,7 +387,7 @@ static int print_lables(WINDOW *wp, int y)
 
 static int print_labels_colorful(WINDOW *wp, int y)
 {
-	const int cpair = MAGENTA_PAIR;
+	const int cpair = RED_PAIR;
 
 	return (wattron(wp, COLOR_PAIR(cpair)) == ERR ||
 		print_lables(wp, y) ||
@@ -407,13 +417,13 @@ static int create_borders(WINDOW *wp)
 	
 	getmaxyx(wp, max_y, max_x);
 	/* 2 = line that cant be displayed + summary message */
-	max_y = max_y - 2;
+	max_y -= 2;
 
 	return (mvwhline(wp, begin_y, begin_x, border, max_x) == ERR || 
 		mvwhline(wp, max_y, begin_x, border, max_x) == ERR) ? -1 : 0;
 }
 
-static int restore_entry_colors(WINDOW *wp, int y, short cpair)
+static inline int restore_entry_colors(WINDOW *wp, int y, short cpair)
 {
 	return (dye_fsize(wp, y) || 
 		dye_mtime(wp, y) || 
@@ -522,7 +532,7 @@ WINDOW *nc_newwin(int lines_num, int cols_num, int begin_y, int begin_x)
  * Check if c is in the navigation keys, and return the value of the 
  * operation that this key does
  */
-static inline int in_navigation_keys(int c)
+static inline int is_in_navigation_keys(int c)
 {
 	if (c == KEY_UP || c == 'k')
 		return KEY_UP;
@@ -534,7 +544,9 @@ static inline int in_navigation_keys(int c)
 
 static inline int change_highlight_loc(WINDOW *wp, int key)
 {
-	if (key == KEY_DOWN && _highligted_node->next)
+	if (key == KEY_DOWN && 
+	    _highligted_node->next &&
+	    is_between_page_borders(wp, _highligted_node->next->data->curses_data->y))
 		_highligted_node = _highligted_node->next;
 	else if (key == KEY_UP && _highligted_node->prev)
 		_highligted_node = _highligted_node->prev;
@@ -544,7 +556,6 @@ static inline int change_highlight_loc(WINDOW *wp, int key)
 		 * location if it didn't change
 		 */
 		return 0;
-
 	return update_highlight_loc(wp, key);
 }
 
@@ -552,10 +563,10 @@ static inline int perform_input_operations(WINDOW *wp, int c)
 {
 	int key;
 
-	if ((key = in_navigation_keys(c))) {
+	if ((key = is_in_navigation_keys(c))) {
 		if (change_highlight_loc(wp, key))
 			return -1;
-	} else if ((c == 'q'))
+	} else if (c == 'q')
 		return 1;
 	return 0;
 }

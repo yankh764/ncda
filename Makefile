@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -I$(INCLUDE) -march=native -O2 -pipe -fstack-protector-strong   \
 		 -std=gnu90 -Wall -Wextra -Wformat=2 -Wstrict-overflow=5 -Winline \
-		 -Wundef
+		 -Wundef -D_FILE_OFFSET_BITS=64
 LDFLAGS = -lncurses -ltinfo
 
 DST_DIR = /usr/local/bin
