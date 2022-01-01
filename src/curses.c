@@ -48,7 +48,7 @@ enum COLOR_PAIRS_NUM {
 	DEFAULT_PAIR = 7
 };
 
-const struct doubly_list *_highligted_node; 
+struct doubly_list *_highligted_node; 
 
 
 /* Constant parameters */
@@ -57,9 +57,9 @@ const int _borders_cpair = CYAN_PAIR;
 const char _separator = '|';
 const int _blank = 1;
 const int _sep_blank = 2 * _blank;
-const int _fsize_x = 0;
-const int _mtime_x = 12;
-const int _fname_x = 27;
+const int _fsize_init_x = 0;
+const int _mtime_init_x = 12;
+const int _fname_init_x = 27;
 const int _max_print_fsize = 8;
 const int _max_print_mtime = 11;
 
@@ -101,11 +101,12 @@ static inline char proper_eos(mode_t file_mode)
 
 static inline void insert_cdata_fields(struct entry_data *ptr, int i)
 {
+	/* The 2 = an empty line + labels line */
+	const int skipped_lines = 2;
 	struct stat *statbuf = ptr->file_data->fstatus;
 
 	ptr->curses_data->cpair = proper_color_pair(statbuf->st_mode);
-	/* The 2 = an empty line + labels line */
-	ptr->curses_data->y = i + 2;
+	ptr->curses_data->y = i + skipped_lines;
 	ptr->curses_data->eos = proper_eos(statbuf->st_mode);
 }
 
@@ -134,7 +135,7 @@ static inline int dye_fsize(WINDOW *wp, int y)
 {
 	const int max_val_len = 5;
 
-	return dye_val(wp, y, _fsize_x, max_val_len);
+	return dye_val(wp, y, _fsize_init_x, max_val_len);
 }
 
 static int print_fsize(WINDOW *wp, int y, off_t bytes)
@@ -144,12 +145,13 @@ static int print_fsize(WINDOW *wp, int y, off_t bytes)
 
 	format = get_proper_size_format(bytes);
 
-	if (mvwprintw(wp, y, _fsize_x, "%5.1f %s", format.size, format.unit) == ERR)
+	if (mvwprintw(wp, y, _fsize_init_x, "%5.1f %s", 
+		      format.size, format.unit) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
 		if (dye_fsize(wp, y))
 			return -1;
-	sep_x = _fsize_x + _max_print_fsize + _sep_blank;
+	sep_x = _fsize_init_x + _max_print_fsize + _sep_blank;
 	
 	return print_separator(wp, y, sep_x);
 }
@@ -158,28 +160,28 @@ static inline int dye_mtime(WINDOW *wp, int y)
 {
 	const int max_val_len = 1;
 
-	return dye_val(wp, y, _mtime_x, max_val_len);
+	return dye_val(wp, y, _mtime_init_x, max_val_len);
 }
 
 static int print_mtime(WINDOW *wp, int y, time_t mtime)
 {
-	char *buf;
+	char *buffer;
 	int sep_x;
 
-	if(!(buf = get_mtime_str(mtime)))
+	if(!(buffer = get_mtime_str(mtime)))
 		return -1;
-	if (mvwprintw(wp, y, _mtime_x, "%s", buf) == ERR)
+	if (mvwprintw(wp, y, _mtime_init_x, "%s", buffer) == ERR)
 		goto err_free_buf;
 	if (COLORED_OUTPUT)
 		if (dye_mtime(wp, y))
 			goto err_free_buf;
-	free(buf);
-	sep_x = _mtime_x + _max_print_mtime + _sep_blank;
+	free(buffer);
+	sep_x = _mtime_init_x + _max_print_mtime + _sep_blank;
 	
 	return print_separator(wp, y, sep_x);
 
 err_free_buf:
-	free(buf);
+	free(buffer);
 	return -1;
 }
 
@@ -188,13 +190,13 @@ static inline int dye_fname(WINDOW *wp, int y, short cpair)
 	/* End of line */
 	const int eol = -1;
 
-	return (mvwchgat(wp, y, _fname_x, eol, 
+	return (mvwchgat(wp, y, _fname_init_x, eol, 
 			 _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static int print_fname(WINDOW *wp, int y, const char *name, char eos, short cpair)
 {
-	if (mvwprintw(wp, y, _fname_x, "%s%c", name, eos) == ERR)
+	if (mvwprintw(wp, y, _fname_init_x, "%s%c", name, eos) == ERR)
 		return -1;
 	if (cpair)
 		if (dye_fname(wp, y, cpair))
@@ -207,8 +209,8 @@ static int print_separators_only(WINDOW *wp, int y)
 	int x1; 
 	int x2;
 
-	x1 = _fsize_x + _max_print_fsize + _sep_blank;
-	x2 = _mtime_x + _max_print_mtime + _sep_blank;
+	x1 = _fsize_init_x + _max_print_fsize + _sep_blank;
+	x2 = _mtime_init_x + _max_print_mtime + _sep_blank;
 
 	return (print_separator(wp, y, x1) || 
 		print_separator(wp, y, x2)) ? -1 : 0;
@@ -238,12 +240,12 @@ static inline int display_entries_info(WINDOW *wp,
 
 static inline bool is_between_page_borders(WINDOW *wp, int current_y)
 {
-	int max_y;
-
 	/* 3 = line that cant be displayed + summary message + border line */
-	max_y = getmaxy(wp) - 3;
+	const int skipped_lines = 3;
+	const int max_y = getmaxy(wp) - skipped_lines;
+	const int min_y = 2;
 
-	return (max_y >= current_y);
+	return (min_y <= current_y) && (max_y >= current_y);
 }
 
 int nc_display_entries(WINDOW *wp, const struct doubly_list *ptr) 
@@ -381,8 +383,8 @@ static int print_lables(WINDOW *wp, int y)
 	const int begin_x = 3;
 
 	return (mvwprintw(wp, y, begin_x, "Size") == ERR ||
-		mvwprintw(wp, y, _mtime_x, "Modification") == ERR ||
-		mvwprintw(wp, y, _fname_x, "Entry's name") == ERR) ? -1 : 0;
+		mvwprintw(wp, y, _mtime_init_x, "Modification") == ERR ||
+		mvwprintw(wp, y, _fname_init_x, "Entry's name") == ERR) ? -1 : 0;
 }
 
 static int print_labels_colorful(WINDOW *wp, int y)
@@ -487,7 +489,7 @@ static inline int update_highlight_loc(WINDOW *wp, int key)
 
 static int init_highlight(WINDOW *wp, const struct doubly_list *head)
 {
-	_highligted_node = head;
+	_highligted_node = (struct doubly_list *) head;
 	
 	return update_highlight_loc(wp, '\0');
 }
@@ -532,7 +534,7 @@ WINDOW *nc_newwin(int lines_num, int cols_num, int begin_y, int begin_x)
  * Check if c is in the navigation keys, and return the value of the 
  * operation that this key does
  */
-static inline int is_in_navigation_keys(int c)
+static inline int in_navigation_keys(int c)
 {
 	if (c == KEY_UP || c == 'k')
 		return KEY_UP;
@@ -542,20 +544,48 @@ static inline int is_in_navigation_keys(int c)
 		return 0;
 }
 
-static inline int change_highlight_loc(WINDOW *wp, int key)
+static inline struct doubly_list *change_highlighted_node(int key)
 {
-	if (key == KEY_DOWN && 
-	    _highligted_node->next &&
-	    is_between_page_borders(wp, _highligted_node->next->data->curses_data->y))
-		_highligted_node = _highligted_node->next;
+	struct doubly_list *retval;
+
+	if (key == KEY_DOWN && _highligted_node->next)
+		retval =_highligted_node = _highligted_node->next;
 	else if (key == KEY_UP && _highligted_node->prev)
-		_highligted_node = _highligted_node->prev;
-	else
-		/* 
-		 * There is no need to update the highlight 
-		 * location if it didn't change
-		 */
+		retval = _highligted_node = _highligted_node->prev;
+	else 
+		retval = NULL;
+	return retval;
+}
+
+static struct doubly_list *decrease_nodes_y()
+{
+	const int min_y = 2;
+	struct doubly_list *current, *retval;
+	
+	retval = NULL;
+	for (current=_highligted_node; current; current=_highligted_node->prev)
+		if (--(current->data->curses_data->y) < min_y)
+			retval = current;
+	return retval;
+}
+
+static inline struct doubly_list *correct_nodes_y(int key)
+{
+	if (key == KEY_DOWN)
+		return decrease_nodes_y();
+	//else if (key == KEY_UP)
+	//	return increase_nodes_y();
+}
+
+static int manage_navigation_input(WINDOW *wp, int key)
+{
+	struct doubly_list *beginning;
+
+	if (!change_highlighted_node(key))
 		return 0;
+	if (!is_between_page_borders(wp, _highligted_node->data->curses_data->y)) {
+		beginning = correct_nodes_y(key);
+	}
 	return update_highlight_loc(wp, key);
 }
 
@@ -563,11 +593,10 @@ static inline int perform_input_operations(WINDOW *wp, int c)
 {
 	int key;
 
-	if ((key = is_in_navigation_keys(c))) {
-		if (change_highlight_loc(wp, key))
+	if ((key = in_navigation_keys(c))) {
+		if (manage_navigation_input(wp, key))
 			return -1;
-	} else if (c == 'q')
-		return 1;
+	}
 	return 0;
 }
 
@@ -575,8 +604,15 @@ int nc_man_input(WINDOW *wp)
 {
 	int c;
 
-	while ((c = wgetch(wp)) != ERR)
-		if (perform_input_operations(wp, c))
-			return -1;
+	while ((c = wgetch(wp)) != ERR) {
+		switch (c) {
+		case 'q':
+			return 0;
+		default:
+			if (perform_input_operations(wp, c))
+				return -1;
+			break;
+		}
+	}
 	return c;
 }
