@@ -101,9 +101,9 @@ static inline char proper_eos(mode_t file_mode)
 
 static inline void insert_cdata_fields(struct entry_data *ptr, int i)
 {
+	struct stat *const statbuf = ptr->file_data->fstatus;
 	/* The 2 = an empty line + labels line */
 	const int skipped_lines = 2;
-	struct stat *statbuf = ptr->file_data->fstatus;
 
 	ptr->curses_data->cpair = proper_color_pair(statbuf->st_mode);
 	ptr->curses_data->y = i + skipped_lines;
@@ -222,7 +222,7 @@ static inline int display_entries_info(WINDOW *wp,
 	const time_t mtime = node->data->file_data->fstatus->st_mtim.tv_sec;
 	const off_t fsize = node->data->file_data->fstatus->st_size;
 	const short color_pair = node->data->curses_data->cpair;
-	const char *name = node->data->file_data->fname;
+	const char *const name = node->data->file_data->fname;
 	const char eos = node->data->curses_data->eos;
 	const int y = node->data->curses_data->y;
 	
@@ -248,7 +248,7 @@ static inline bool is_between_page_borders(WINDOW *wp, int current_y)
 	return (min_y <= current_y) && (max_y >= current_y);
 }
 
-int nc_display_entries(WINDOW *wp, const struct doubly_list *ptr) 
+int display_entries(WINDOW *wp, const struct doubly_list *ptr) 
 {
 	const struct doubly_list *current;
 	int retval;
@@ -489,9 +489,11 @@ static inline int update_highlight_loc(WINDOW *wp, int key)
 
 static int init_highlight(WINDOW *wp, const struct doubly_list *head)
 {
+	const char null = '\0';
+
 	_highligted_node = (struct doubly_list *) head;
 	
-	return update_highlight_loc(wp, '\0');
+	return update_highlight_loc(wp, null);
 }
 
 /*
@@ -502,7 +504,7 @@ int nc_initial_display(WINDOW *wp,
 		       const char *current_path)
 {
 	return (display_opening_message(wp) || create_borders(wp) ||
-		display_labels(wp) || nc_display_entries(wp, head) || 
+		display_labels(wp) || display_entries(wp, head) || 
 		display_summary_message(wp, head, current_path) ||
 		init_highlight(wp, head)) ? -1 : 0;
 }
@@ -554,27 +556,83 @@ static inline struct doubly_list *change_highlighted_node(int key)
 		retval = _highligted_node = _highligted_node->prev;
 	else 
 		retval = NULL;
+	
 	return retval;
+}
+
+static inline struct doubly_list *decrease_prev_y()
+{
+	const int min_y = 2;
+	struct doubly_list *current, *retval;
+
+	for (current=_highligted_node->prev; current; current=current->prev) {
+		current->data->curses_data->y -= 1;
+		
+		if (current->data->curses_data->y == min_y)
+			retval = current;
+	}
+	return retval;
+}
+
+static inline void decrease_next_y()
+{
+	struct doubly_list *current;
+
+	for (current=_highligted_node->next; current; current=current->next)
+		current->data->curses_data->y -= 1;
 }
 
 static struct doubly_list *decrease_nodes_y()
 {
-	const int min_y = 2;
-	struct doubly_list *current, *retval;
-	
-	retval = NULL;
-	for (current=_highligted_node; current; current=_highligted_node->prev)
-		if (--(current->data->curses_data->y) < min_y)
-			retval = current;
-	return retval;
+	_highligted_node->data->curses_data->y -= 1;
+	decrease_next_y();
+
+	return decrease_prev_y();
+}
+
+static inline void increase_prev_y()
+{
+	struct doubly_list *current;
+
+	for (current=_highligted_node->prev; current; current=current->prev)
+		current->data->curses_data->y += 1;
+}
+
+static inline void increase_next_y()
+{
+	struct doubly_list *current;
+
+	for (current=_highligted_node->next; current; current=current->next)
+		current->data->curses_data->y += 1;
+}
+
+static struct doubly_list *increase_nodes_y()
+{
+	_highligted_node->data->curses_data->y += 1;
+	increase_prev_y();
+	increase_next_y();
+
+	return _highligted_node;
 }
 
 static inline struct doubly_list *correct_nodes_y(int key)
 {
 	if (key == KEY_DOWN)
 		return decrease_nodes_y();
-	//else if (key == KEY_UP)
-	//	return increase_nodes_y();
+	else
+		return increase_nodes_y();
+}
+
+static int clear_screen(WINDOW *wp)
+{
+	int begin_y, max_y, max_x;
+	
+	getmaxyx(wp, max_y, max_x);
+	max_y -= 2;
+
+	for (begin_y=2; begin_y<max_y; begin_y++)
+		mvwhline(wp, begin_y, 0, ' ', max_x);
+	return 0;
 }
 
 static int manage_navigation_input(WINDOW *wp, int key)
@@ -585,6 +643,9 @@ static int manage_navigation_input(WINDOW *wp, int key)
 		return 0;
 	if (!is_between_page_borders(wp, _highligted_node->data->curses_data->y)) {
 		beginning = correct_nodes_y(key);
+		/* Dont forget cchecking error */
+		clear_screen(wp);	
+		display_entries(wp, beginning);
 	}
 	return update_highlight_loc(wp, key);
 }

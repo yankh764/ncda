@@ -6,7 +6,6 @@
 
 extern bool COLORED_OUTPUT;
 
-int nc_display_entries(WINDOW *, const struct doubly_list *);
 int nc_init_setup();
 WINDOW *nc_newwin(int, int, int, int);
 void nc_get_cdata_fields(struct doubly_list *);
