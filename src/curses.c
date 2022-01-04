@@ -20,6 +20,8 @@
 #include "disk_man.h"
 #include "curses.h"
 
+/* End of a line */
+#define EOL -1
 /*
  * I defined these macros to get the appropriate entry color in an effiecient,
  * fast and clear way without making an external function call that will 
@@ -186,10 +188,7 @@ err_free_buf:
 
 static inline int dye_fname(WINDOW *wp, int y, short cpair)
 {
-	/* End of line */
-	const int eol = -1;
-
-	return (mvwchgat(wp, y, _fname_init_x, eol, 
+	return (mvwchgat(wp, y, _fname_init_x, EOL, 
 			 _def_attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
@@ -237,7 +236,7 @@ static inline int display_entries_info(WINDOW *wp,
 	return print_fname(wp, y, name, eos, color_pair);
 }
 
-static inline int get_max_displayed_y(WINDOW *wp)
+static inline int get_max_practical_y(WINDOW *wp)
 {
 	/* 3 = line that cant be displayed + summary message + border line */
 	const int skipped_lines = 3;
@@ -247,7 +246,7 @@ static inline int get_max_displayed_y(WINDOW *wp)
 
 static inline bool is_between_page_borders(WINDOW *wp, int current_y)
 {
-	const int max_y = get_max_displayed_y(wp);
+	const int max_y = get_max_practical_y(wp);
 	const int min_y = 2;
 
 	return (min_y <= current_y) && (max_y >= current_y);
@@ -322,7 +321,6 @@ static int display_opening_message(WINDOW *wp)
 	const char *message = "Ncurses disk analyzer --- Press ? for help";
 	const int begin_y = 0;
 	const int begin_x = 0;
-	const int eol = -1;
 	short cpair;
 
 	cpair = COLORED_OUTPUT ? _borders_cpair : 0;
@@ -330,7 +328,7 @@ static int display_opening_message(WINDOW *wp)
 	if (mvwprintw(wp, begin_y, begin_x, "%s", message) == ERR)
 		return -1;
 	else
-		return (mvwchgat(wp, begin_y, begin_x, eol,
+		return (mvwchgat(wp, begin_y, begin_x, EOL,
 				 A_REVERSE, cpair, NULL) == ERR) ? -1 : 0;
 }
 
@@ -369,7 +367,6 @@ static int display_summary_message(WINDOW *wp,
 {
 	const int attrs = A_REVERSE | A_BOLD;
 	const int begin_x = 0;
-	const int eol = -1;
 	int max_y, max_x;
 	short cpair;
 
@@ -380,7 +377,7 @@ static int display_summary_message(WINDOW *wp,
 		return -1;
 	else 
 		return (mvwchgat(wp, max_y, begin_x, 
-				 eol, attrs, cpair, NULL) == ERR) ? -1 : 0;
+				 EOL, attrs, cpair, NULL) == ERR) ? -1 : 0;
 }
 
 static int print_lables(WINDOW *wp, int y)
@@ -417,14 +414,15 @@ static int display_labels(WINDOW *wp)
 
 static int create_borders(WINDOW *wp)
 {
+	/* 2 = line that cant be displayed + summary message */
+	const int skipped_lines = 2;
 	const char border = '-';
 	const int begin_y = 1;
 	const int begin_x = 0;
 	int max_x, max_y;
 	
 	getmaxyx(wp, max_y, max_x);
-	/* 2 = line that cant be displayed + summary message */
-	max_y -= 2;
+	max_y -= skipped_lines;
 
 	return (mvwhline(wp, begin_y, begin_x, border, max_x) == ERR || 
 		mvwhline(wp, max_y, begin_x, border, max_x) == ERR) ? -1 : 0;
@@ -442,9 +440,8 @@ static inline int restore_prev_entry_design(WINDOW *wp)
 	const short cpair = _highligted_node->prev->data->curses_data->cpair;
 	const int y = _highligted_node->prev->data->curses_data->y;
 	const int begin_x = 0;
-	const int eol = -1;
 	
-	if (mvwchgat(wp, y, begin_x, eol, _def_attrs, 0, NULL) == ERR)
+	if (mvwchgat(wp, y, begin_x, EOL, _def_attrs, 0, NULL) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
 		return restore_entry_colors(wp, y, cpair);
@@ -457,9 +454,8 @@ static inline int restore_next_entry_design(WINDOW *wp)
 	const short cpair = _highligted_node->next->data->curses_data->cpair;
 	const int y = _highligted_node->next->data->curses_data->y;
 	const int begin_x = 0;
-	const int eol = -1;
 	
-	if (mvwchgat(wp, y, begin_x, eol, _def_attrs, 0, NULL) == ERR)
+	if (mvwchgat(wp, y, begin_x, EOL, _def_attrs, 0, NULL) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
 		return restore_entry_colors(wp, y, cpair);
@@ -482,9 +478,8 @@ static inline int update_highlight_loc(WINDOW *wp, int key)
 	const int y = _highligted_node->data->curses_data->y;
 	const int attrs = _def_attrs | A_REVERSE;
 	const int begin_x = 0;
-	const int eol = -1;
 
-	if (mvwchgat(wp, y, begin_x, eol, attrs, 0, NULL) == ERR)
+	if (mvwchgat(wp, y, begin_x, EOL, attrs, 0, NULL) == ERR)
 		return -1;
 	if (restore_entry_design(wp, key))
 		return -1;
@@ -646,17 +641,18 @@ static inline struct doubly_list *correct_nodes_y(int key)
 static int clear_display(WINDOW *wp)
 {
 	const char blank = ' ';
-	const int skipped_lines = 2;
 	const int begin_x = 0;
 	const int begin_y = 2;
-	int y, max_y, max_x;
+	int y, max_y, max_x, retval;
 	
-	getmaxyx(wp, max_y, max_x);
-	max_y -= skipped_lines;
+	retval = 0;
+	max_y = get_max_practical_y(wp);
+	max_x = getmaxx(wp);
 
-	for (y=begin_y; y<max_y; y++)
-		mvwhline(wp, y, begin_x , blank, max_x);
-	return 0;
+	for (y=begin_y; y<=max_y; y++)
+		if ((retval = mvwhline(wp, y, begin_x , blank, max_x)) == ERR)
+			break;
+	return retval;
 }
 
 static int manage_navigation_input(WINDOW *wp, int key)
@@ -701,3 +697,4 @@ int nc_man_input(WINDOW *wp)
 	}
 	return c;
 }
+
