@@ -74,9 +74,9 @@ static inline char *get_entry_path(const char *dir_path, const char *entry_name)
 		return get_entry_path_not_slash(dir_path, entry_name);
 }
 
-static void free_and_null_doubly_list(struct doubly_list **head)
+static void free_and_null_entries_dlist(struct entries_dlist **head)
 {
-	free_doubly_list(*head);
+	free_entries_dlist(*head);
 	*head = NULL;
 }
 
@@ -99,32 +99,32 @@ static inline int get_fdata_fields(struct fdata *ptr,
 	return retval;
 }
 
-static struct doubly_list *_get_doubly_list_node(const char *entry_path,
-						 const char *entry_name)
+static struct entries_dlist *_get_entries_dlist_node(const char *entry_path,
+						     const char *entry_name)
 {
 	size_t path_len, name_len;
-	struct doubly_list *node;
+	struct entries_dlist *node;
 
 	name_len = strlen(entry_name) + 1;
 	path_len = strlen(entry_path) + 1;
 
-	if ((node = alloc_doubly_list(name_len, path_len)))
+	if ((node = alloc_entries_dlist(name_len, path_len)))
 		if(get_fdata_fields(node->data->file_data, 
 				    entry_path, path_len,
 				    entry_name, name_len))
-			free_and_null_doubly_list(&node);
+			free_and_null_entries_dlist(&node);
 	return node;
 }
 
-static inline struct doubly_list *get_doubly_list_node(const char *dir_path, 
-						       const char *entry_name) 
+static inline struct entries_dlist *get_entries_dlist_node(const char *dir_path, 
+						           const char *entry_name) 
 {
-	struct doubly_list *node;
+	struct entries_dlist *node;
 	char *entry_path;
 
 	node = NULL;
 	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		node = _get_doubly_list_node(entry_path, entry_name) ;
+		node = _get_entries_dlist_node(entry_path, entry_name) ;
 		free(entry_path);	
 	}
 	return node;
@@ -133,8 +133,8 @@ static inline struct doubly_list *get_doubly_list_node(const char *dir_path,
 /*
  * The function returns the address of the new connected node
  */
-static inline struct doubly_list *connect_nodes(struct doubly_list *current, 
-				                struct doubly_list *new_node)
+static inline struct entries_dlist *connect_nodes(struct entries_dlist *current, 
+				                  struct entries_dlist *new_node)
 {
 	current->next = new_node;
 	new_node->prev = current;
@@ -142,9 +142,9 @@ static inline struct doubly_list *connect_nodes(struct doubly_list *current,
 	return current->next;
 }
 
-static void connect_dot_entries(struct doubly_list *dot, 
-				struct doubly_list *two_dots, 
-				struct doubly_list *head)
+static void connect_dot_entries(struct entries_dlist *dot, 
+				struct entries_dlist *two_dots, 
+				struct entries_dlist *head)
 {
 	connect_nodes(dot, two_dots);
 	if (head)
@@ -167,17 +167,17 @@ static int lstat_custom_fail(const char *path, struct stat *statbuf)
         return retval;
 }
 
-static struct doubly_list *prepend_dot_entries(const char *dir_path, 
-					       struct doubly_list *head)
+static struct entries_dlist *prepend_dot_entries(const char *dir_path, 
+					         struct entries_dlist *head)
 {
-	struct doubly_list *two_dots;
-	struct doubly_list *dot;
+	struct entries_dlist *two_dots;
+	struct entries_dlist *dot;
 
-	if ((dot = get_doubly_list_node(dir_path, "."))) {
-		if ((two_dots = get_doubly_list_node(dir_path, "..")))
+	if ((dot = get_entries_dlist_node(dir_path, "."))) {
+		if ((two_dots = get_entries_dlist_node(dir_path, "..")))
 			connect_dot_entries(dot, two_dots, head);
 		else 
-			free_and_null_doubly_list(&dot);
+			free_and_null_entries_dlist(&dot);
 		
 	}
 	return dot;
@@ -186,13 +186,13 @@ static struct doubly_list *prepend_dot_entries(const char *dir_path,
 /*
  * A helper function for get_dirs_content()
  */
-static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
+static struct entries_dlist *_get_dirs_content(DIR *dp, const char *dir_path)
 {
         struct dirent *entry;
-        struct doubly_list *new_node;
-        struct doubly_list *new_head;
-        struct doubly_list *current;
-        struct doubly_list *head;
+        struct entries_dlist *new_node;
+        struct entries_dlist *new_head;
+        struct entries_dlist *current;
+        struct entries_dlist *head;
         
 	head = NULL;
         errno = 0;
@@ -200,15 +200,15 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
-		if (!(new_node = get_doubly_list_node(dir_path, entry->d_name)))
-			goto err_free_doubly_list;
+		if (!(new_node = get_entries_dlist_node(dir_path, entry->d_name)))
+			goto err_free_entries_dlist;
 		if (head)
 			current = connect_nodes(current, new_node);
 		else 
 			current = head = new_node;
 	}
 	if (errno)
-		goto err_free_doubly_list;
+		goto err_free_entries_dlist;
 	/* 
 	 * I want the dot entries to be the first 2 nodes 
 	 * of the doubly linked list so I skipped them in the 
@@ -217,20 +217,20 @@ static struct doubly_list *_get_dirs_content(DIR *dp, const char *dir_path)
 	 * to prepend them to the head node at the end of the function.
 	 */
 	if (!(new_head = prepend_dot_entries(dir_path, head)))
-		goto err_free_doubly_list;
+		goto err_free_entries_dlist;
 
 	return new_head;
 
-err_free_doubly_list:
+err_free_entries_dlist:
 	if (head)
-		free_doubly_list(head);
+		free_entries_dlist(head);
 	
 	return NULL;
 }
 
-struct doubly_list *get_dirs_content(const char *path)
+struct entries_dlist *get_dirs_content(const char *path)
 {
-        struct doubly_list *head;
+        struct entries_dlist *head;
         DIR *dp;
 
 	head = NULL;
@@ -238,7 +238,7 @@ struct doubly_list *get_dirs_content(const char *path)
                 head = _get_dirs_content(dp, path);
                 
                 if (closedir_inf(dp) && head)
-                        free_and_null_doubly_list(&head);
+                        free_and_null_entries_dlist(&head);
         }
         return head;
 }
@@ -346,9 +346,9 @@ int rm_entry(const struct fdata *data)
 		return rm_file(data->fpath);
 }
 
-off_t get_total_disk_usage(const struct doubly_list *head)
+off_t get_total_disk_usage(const struct entries_dlist *head)
 {
-	const struct doubly_list *current;
+	const struct entries_dlist *current;
 	off_t total;
 
 	for (current=head, total=0; current; current=current->next)
@@ -444,9 +444,9 @@ static inline bool is_unsupported_dir(const struct fdata *data)
  * Correct the st_size fields for the directories since it represents 
  * only the entry size and not with the actual directory's content size
  */
-int correct_dir_st_size(struct doubly_list *head)
+int correct_dir_st_size(struct entries_dlist *head)
 {
-	struct doubly_list *current;
+	struct entries_dlist *current;
 	int retval;
 
 	retval = 0;

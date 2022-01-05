@@ -15,7 +15,8 @@ struct fdata {
 struct cdata {
 	short cpair;
 	int y;
-	char eos; /* Equivalent to end of string */
+	/* Equivalent to end of string */
+	char eos;
 };
 
 struct entry_data {
@@ -23,18 +24,19 @@ struct entry_data {
 	struct cdata *curses_data;
 };
 
-struct doubly_list {
-	struct doubly_list *prev;
+/* A doubly linked list for the entries found in a directory */
+struct entries_dlist {
+	struct entries_dlist *prev;
 	struct entry_data *data;
-	struct doubly_list *next;
+	struct entries_dlist *next;
 };
 
 struct size_format {
-	float size;
+	float val;
 	char *unit;
 };
 
-void *alloc_doubly_list(size_t, size_t);
-void free_doubly_list(struct doubly_list *);
+void *alloc_entries_dlist(size_t, size_t);
+void free_entries_dlist(struct entries_dlist *);
 
 #endif

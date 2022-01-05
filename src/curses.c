@@ -50,7 +50,7 @@ enum COLOR_PAIRS_NUM {
 	DEFAULT_PAIR = 7
 };
 
-struct doubly_list *_highligted_node; 
+struct entries_dlist *_highligted_node; 
 
 
 /* Constant parameters */
@@ -111,9 +111,9 @@ static inline void insert_cdata_fields(struct entry_data *ptr, int i)
 	ptr->curses_data->eos = proper_eos(statbuf->st_mode);
 }
 
-void nc_get_cdata_fields(struct doubly_list *head)
+void nc_get_cdata_fields(struct entries_dlist *head)
 {
-	struct doubly_list *current;
+	struct entries_dlist *current;
 	unsigned int i;
 	
 	for (current=head, i=0; current; current=current->next, i++)
@@ -147,7 +147,7 @@ static int print_fsize(WINDOW *wp, int y, off_t bytes)
 	format = get_proper_size_format(bytes);
 
 	if (mvwprintw(wp, y, _fsize_init_x, "%5.1f %s", 
-		      format.size, format.unit) == ERR)
+		      format.val, format.unit) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
 		if (dye_fsize(wp, y))
@@ -215,7 +215,7 @@ static int print_separators_only(WINDOW *wp, int y)
 }
 
 static inline int display_entries_info(WINDOW *wp,
-				       const struct doubly_list *node)
+				       const struct entries_dlist *node)
 {
 	const time_t mtime = node->data->file_data->fstatus->st_mtim.tv_sec;
 	const off_t fsize = node->data->file_data->fstatus->st_size;
@@ -252,9 +252,9 @@ static inline bool is_between_page_borders(WINDOW *wp, int current_y)
 	return (min_y <= current_y) && (max_y >= current_y);
 }
 
-int display_entries(WINDOW *wp, const struct doubly_list *ptr) 
+int display_entries(WINDOW *wp, const struct entries_dlist *ptr) 
 {
-	const struct doubly_list *current;
+	const struct entries_dlist *current;
 	int retval;
 
 	retval = 0;
@@ -338,7 +338,7 @@ static int print_path_summary(WINDOW *wp, int y, int x, const char *path)
 }
 
 static int print_usage_summary(WINDOW *wp, int y, int max_x,
-			       const struct doubly_list *head)
+			       const struct entries_dlist *head)
 {
 	const char *message = "Total Disk Usage:";
 	struct size_format format;
@@ -349,11 +349,11 @@ static int print_usage_summary(WINDOW *wp, int y, int max_x,
 	len = strlen(message) + _blank + _max_print_fsize + 1;
 
 	return (mvwprintw(wp, y, max_x-len, "%s %0.2f %s", 
-			  message, format.size, format.unit) == ERR) ? -1 : 0;
+			  message, format.val, format.unit) == ERR) ? -1 : 0;
 }
 
 static int summary_message(WINDOW *wp, int y, int x,
-			   const struct doubly_list *head, const char *path)
+			   const struct entries_dlist *head, const char *path)
 {
 	const int begin_x = 1;
 
@@ -362,7 +362,7 @@ static int summary_message(WINDOW *wp, int y, int x,
 }
 
 static int display_summary_message(WINDOW *wp, 
-		   		   const struct doubly_list *head, 
+		   		   const struct entries_dlist *head, 
 				   const char *current_path)
 {
 	const int attrs = A_REVERSE | A_BOLD;
@@ -487,11 +487,11 @@ static inline int update_highlight_loc(WINDOW *wp, int key)
 		return (wrefresh(wp) == ERR) ? -1 : 0;
 }
 
-static int init_highlight(WINDOW *wp, const struct doubly_list *head)
+static int init_highlight(WINDOW *wp, const struct entries_dlist *head)
 {
 	const char null = '\0';
 
-	_highligted_node = (struct doubly_list *) head;
+	_highligted_node = (struct entries_dlist *) head;
 	
 	return update_highlight_loc(wp, null);
 }
@@ -500,7 +500,7 @@ static int init_highlight(WINDOW *wp, const struct doubly_list *head)
  * The initial display for each window
  */
 int nc_initial_display(WINDOW *wp, 
-		       const struct doubly_list *head,
+		       const struct entries_dlist *head,
 		       const char *current_path)
 {
 	return (display_opening_message(wp) || create_borders(wp) ||
@@ -546,9 +546,9 @@ static inline int in_navigation_keys(int c)
 		return 0;
 }
 
-static inline struct doubly_list *change_highlighted_node(int key)
+static inline struct entries_dlist *change_highlighted_node(int key)
 {
-	struct doubly_list *retval;
+	struct entries_dlist *retval;
 
 	if (key == KEY_DOWN && _highligted_node->next)
 		retval =_highligted_node = _highligted_node->next;
@@ -560,10 +560,10 @@ static inline struct doubly_list *change_highlighted_node(int key)
 	return retval;
 }
 
-static inline struct doubly_list *decrease_prev_y()
+static inline struct entries_dlist *decrease_prev_y()
 {
 	const int min_y = 2;
-	struct doubly_list *current, *retval;
+	struct entries_dlist *current, *retval;
 
 	retval = NULL;
 	for (current=_highligted_node->prev; current; current=current->prev) {
@@ -577,7 +577,7 @@ static inline struct doubly_list *decrease_prev_y()
 
 static inline void decrease_next_y()
 {
-	struct doubly_list *current;
+	struct entries_dlist *current;
 
 	for (current=_highligted_node->next; current; current=current->next)
 		current->data->curses_data->y -= 1;
@@ -586,9 +586,9 @@ static inline void decrease_next_y()
 /*
  * Returns the fisrt node then needs to be displayed on the screen
  */
-static struct doubly_list *decrease_nodes_y()
+static struct entries_dlist *decrease_nodes_y()
 {
-	struct doubly_list *retval;
+	struct entries_dlist *retval;
 
 	/* Decrease the currently highlighted node's y*/
 	_highligted_node->data->curses_data->y -= 1;
@@ -600,7 +600,7 @@ static struct doubly_list *decrease_nodes_y()
 
 static inline void increase_prev_y()
 {
-	struct doubly_list *current;
+	struct entries_dlist *current;
 
 	for (current=_highligted_node->prev; current; current=current->prev)
 		current->data->curses_data->y += 1;
@@ -608,7 +608,7 @@ static inline void increase_prev_y()
 
 static inline void increase_next_y()
 {
-	struct doubly_list *current;
+	struct entries_dlist *current;
 
 	for (current=_highligted_node->next; current; current=current->next)
 		current->data->curses_data->y += 1;
@@ -617,9 +617,9 @@ static inline void increase_next_y()
 /*
  * Returns the fisrt node then needs to be displayed on the screen
  */
-static struct doubly_list *increase_nodes_y()
+static struct entries_dlist *increase_nodes_y()
 {
-	struct doubly_list *retval;
+	struct entries_dlist *retval;
 
 	/* Increase the currently highlighted node's y*/
 	_highligted_node->data->curses_data->y += 1;
@@ -630,7 +630,7 @@ static struct doubly_list *increase_nodes_y()
 	return retval;
 }
 
-static inline struct doubly_list *correct_nodes_y(int key)
+static inline struct entries_dlist *correct_nodes_y(int key)
 {
 	if (key == KEY_DOWN)
 		return decrease_nodes_y();
@@ -657,7 +657,7 @@ static int clear_display(WINDOW *wp)
 
 static int manage_navigation_input(WINDOW *wp, int key)
 {
-	struct doubly_list *beginning;
+	struct entries_dlist *beginning;
 
 	if (!change_highlighted_node(key))
 		return 0;

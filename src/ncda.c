@@ -36,7 +36,7 @@ static inline struct size_format proper_size_format(float size, char *unit)
 {
 	struct size_format retval;
 
-	retval.size = size;
+	retval.val = size;
 	retval.unit = unit;
 
 	return retval;

@@ -18,7 +18,7 @@ static inline void *alloc_stat()
         return malloc_inf(sizeof(struct stat));
 }
 
-static void *alloc_fdata(size_t name_len, size_t path_len)
+static inline void *alloc_fdata(size_t name_len, size_t path_len)
 {
 	struct fdata *retval;
 
@@ -44,8 +44,7 @@ err_free_fdata:
 
 static void free_fdata(struct fdata *ptr)
 {
-	if (ptr->fstatus)
-		free(ptr->fstatus);
+	free(ptr->fstatus);
 	free(ptr->fpath);
 	free(ptr->fname);
 	free(ptr);
@@ -56,7 +55,7 @@ static inline void *alloc_cdata()
 	return malloc_inf(sizeof(struct cdata));
 }
 
-static void *alloc_entry_data(size_t name_len, size_t path_len) 
+static inline void *alloc_entry_data(size_t name_len, size_t path_len) 
 {
 	struct entry_data *retval;
 
@@ -83,17 +82,17 @@ static void free_entry_data(struct entry_data *ptr)
 	free(ptr);
 }
 
-static inline void null_prev_and_next(struct doubly_list *node)
+static inline void null_prev_and_next(struct entries_dlist *node)
 {
 	node->prev = NULL;
 	node->next = NULL;
 }
 
-void *alloc_doubly_list(size_t name_len, size_t path_len)
+void *alloc_entries_dlist(size_t name_len, size_t path_len)
 {
-	struct doubly_list *retval;
+	struct entries_dlist *retval;
 
-	if ((retval = malloc_inf(sizeof(struct doubly_list)))) {
+	if ((retval = malloc_inf(sizeof(struct entries_dlist)))) {
 		if ((retval->data = alloc_entry_data(name_len, path_len)))
 			null_prev_and_next(retval);
 		else
@@ -102,11 +101,10 @@ void *alloc_doubly_list(size_t name_len, size_t path_len)
 	return retval;
 }
 
-void free_doubly_list(struct doubly_list *head)
+void free_entries_dlist(struct entries_dlist *head)
 {
 	if (head->next)
-		free_doubly_list(head->next);
+		free_entries_dlist(head->next);
 	free_entry_data(head->data);
 	free(head);
 }
-
