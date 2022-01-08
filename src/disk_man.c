@@ -88,9 +88,9 @@ static inline void insert_fdata_fields(struct fdata *ptr,
 	memcpy(ptr->fpath, path, plen);
 }
 
-static inline int get_fdata_fields(struct fdata *ptr, 
-				   const char *entry_path, size_t plen,
-				   const char *entry_name, size_t nlen)
+static int get_fdata_fields(struct fdata *ptr, 
+			    const char *entry_path, size_t plen,
+			    const char *entry_name, size_t nlen)
 {
 	int retval;
 	
@@ -99,8 +99,8 @@ static inline int get_fdata_fields(struct fdata *ptr,
 	return retval;
 }
 
-static struct entries_dlist *_get_entries_dlist_node(const char *entry_path,
-						     const char *entry_name)
+static struct entries_dlist *_get_entry_info(const char *entry_path,
+					     const char *entry_name)
 {
 	size_t path_len, name_len;
 	struct entries_dlist *node;
@@ -116,15 +116,15 @@ static struct entries_dlist *_get_entries_dlist_node(const char *entry_path,
 	return node;
 }
 
-static inline struct entries_dlist *get_entries_dlist_node(const char *dir_path, 
-						           const char *entry_name) 
+static inline struct entries_dlist *get_entry_info(const char *dir_path, 
+						   const char *entry_name) 
 {
 	struct entries_dlist *node;
 	char *entry_path;
 
 	node = NULL;
 	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		node = _get_entries_dlist_node(entry_path, entry_name) ;
+		node = _get_entry_info(entry_path, entry_name) ;
 		free(entry_path);	
 	}
 	return node;
@@ -153,7 +153,7 @@ static void connect_dot_entries(struct entries_dlist *dot,
 
 static inline int ignore_eacces()
 {
-	errno = 0;
+	ERROR = 0;
 	return 0;
 }
 
@@ -162,7 +162,7 @@ static int lstat_custom_fail(const char *path, struct stat *statbuf)
         int retval;
 
         if ((retval = lstat_inf(path, statbuf)))
-                if (errno == EACCES)
+                if (ERROR == EACCES)
                         retval = ignore_eacces();
         return retval;
 }
@@ -173,8 +173,8 @@ static struct entries_dlist *prepend_dot_entries(const char *dir_path,
 	struct entries_dlist *two_dots;
 	struct entries_dlist *dot;
 
-	if ((dot = get_entries_dlist_node(dir_path, "."))) {
-		if ((two_dots = get_entries_dlist_node(dir_path, "..")))
+	if ((dot = get_entry_info(dir_path, "."))) {
+		if ((two_dots = get_entry_info(dir_path, "..")))
 			connect_dot_entries(dot, two_dots, head);
 		else 
 			free_and_null_entries_dlist(&dot);
@@ -195,19 +195,18 @@ static struct entries_dlist *_get_dirs_content(DIR *dp, const char *dir_path)
         struct entries_dlist *head;
         
 	head = NULL;
-        errno = 0;
 
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
-		if (!(new_node = get_entries_dlist_node(dir_path, entry->d_name)))
+		if (!(new_node = get_entry_info(dir_path, entry->d_name)))
 			goto err_free_entries_dlist;
 		if (head)
 			current = connect_nodes(current, new_node);
 		else 
 			current = head = new_node;
 	}
-	if (errno)
+	if (ERROR)
 		goto err_free_entries_dlist;
 	/* 
 	 * I want the dot entries to be the first 2 nodes 
@@ -224,7 +223,6 @@ static struct entries_dlist *_get_dirs_content(DIR *dp, const char *dir_path)
 err_free_entries_dlist:
 	if (head)
 		free_entries_dlist(head);
-	
 	return NULL;
 }
 

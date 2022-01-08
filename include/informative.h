@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+extern int ERROR;
+
 void *malloc_inf(size_t);
 int lstat_inf(const char *, struct stat *);
 DIR *opendir_inf(const char *);

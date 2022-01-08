@@ -84,7 +84,7 @@ static short get_color_pair_num(mode_t st_mode)
 		return DEFAULT_PAIR;
 }
 
-static inline short proper_color_pair(mode_t file_mode)
+static short proper_color_pair(mode_t file_mode)
 {
 	if (COLORED_OUTPUT) 
 		return get_color_pair_num(file_mode);
@@ -120,12 +120,12 @@ void nc_get_cdata_fields(struct entries_dlist *head)
 		insert_cdata_fields(current->data, i);
 }
 
-static inline int print_separator(WINDOW *wp, int y, int x)
+static int print_separator(WINDOW *wp, int y, int x)
 {
 	return (mvwprintw(wp, y, x, "%c", _separator) == ERR) ? -1 : 0;
 }
 
-static inline int dye_val(WINDOW *wp, int y, int x, int len)
+static int dye_val(WINDOW *wp, int y, int x, int len)
 {
 	const short cpair = YELLOW_PAIR;;
 
@@ -214,8 +214,7 @@ static int print_separators_only(WINDOW *wp, int y)
 		print_separator(wp, y, x2)) ? -1 : 0;
 }
 
-static inline int display_entries_info(WINDOW *wp,
-				       const struct entries_dlist *node)
+static int display_entries_info(WINDOW *wp, const struct entries_dlist *node)
 {
 	const time_t mtime = node->data->file_data->fstatus->st_mtim.tv_sec;
 	const off_t fsize = node->data->file_data->fstatus->st_size;
@@ -236,7 +235,7 @@ static inline int display_entries_info(WINDOW *wp,
 	return print_fname(wp, y, name, eos, color_pair);
 }
 
-static inline int get_max_practical_y(WINDOW *wp)
+static int get_max_practical_y(WINDOW *wp)
 {
 	/* 3 = line that cant be displayed + summary message + border line */
 	const int skipped_lines = 3;
@@ -244,7 +243,7 @@ static inline int get_max_practical_y(WINDOW *wp)
 	return (getmaxy(wp) - skipped_lines);
 }
 
-static inline bool is_between_page_borders(WINDOW *wp, int current_y)
+static bool is_between_page_borders(WINDOW *wp, int current_y)
 {
 	const int max_y = get_max_practical_y(wp);
 	const int min_y = 2;
@@ -435,7 +434,7 @@ static inline int restore_entry_colors(WINDOW *wp, int y, short cpair)
 		dye_fname(wp, y, cpair)) ? -1 : 0;
 }
 
-static inline int restore_prev_entry_design(WINDOW *wp)
+static int restore_prev_entry_design(WINDOW *wp)
 {
 	const short cpair = _highligted_node->prev->data->curses_data->cpair;
 	const int y = _highligted_node->prev->data->curses_data->y;
@@ -449,7 +448,7 @@ static inline int restore_prev_entry_design(WINDOW *wp)
 		return 0;
 }
 
-static inline int restore_next_entry_design(WINDOW *wp)
+static int restore_next_entry_design(WINDOW *wp)
 {
 	const short cpair = _highligted_node->next->data->curses_data->cpair;
 	const int y = _highligted_node->next->data->curses_data->y;
@@ -536,7 +535,7 @@ WINDOW *nc_newwin(int lines_num, int cols_num, int begin_y, int begin_x)
  * Check if c is in the navigation keys, and return the value of the 
  * operation that this key does
  */
-static inline int in_navigation_keys(int c)
+static int in_navigation_keys(int c)
 {
 	if (c == KEY_UP || c == 'k')
 		return KEY_UP;
@@ -560,7 +559,7 @@ static inline struct entries_dlist *change_highlighted_node(int key)
 	return retval;
 }
 
-static inline struct entries_dlist *decrease_prev_y()
+static struct entries_dlist *decrease_prev_y()
 {
 	const int min_y = 2;
 	struct entries_dlist *current, *retval;
@@ -575,7 +574,7 @@ static inline struct entries_dlist *decrease_prev_y()
 	return retval;
 }
 
-static inline void decrease_next_y()
+static void decrease_next_y()
 {
 	struct entries_dlist *current;
 
@@ -598,7 +597,7 @@ static struct entries_dlist *decrease_nodes_y()
 	return retval;
 }
 
-static inline void increase_prev_y()
+static void increase_prev_y()
 {
 	struct entries_dlist *current;
 
@@ -606,7 +605,7 @@ static inline void increase_prev_y()
 		current->data->curses_data->y += 1;
 }
 
-static inline void increase_next_y()
+static void increase_next_y()
 {
 	struct entries_dlist *current;
 
@@ -670,7 +669,7 @@ static int manage_navigation_input(WINDOW *wp, int key)
 	return update_highlight_loc(wp, key);
 }
 
-static inline int perform_input_operations(WINDOW *wp, int c)
+static int perform_input_operations(WINDOW *wp, int c)
 {
 	int key;
 
