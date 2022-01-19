@@ -19,7 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include "ncda.h"
+#include "general.h"
 #include "informative.h" 
 #include "disk_man.h"
 
@@ -46,7 +46,7 @@ static char *get_entry_path_slash(const char *entry_name)
 
 /*
  * Get entry's path in the case of dir_path being just a regular
- * path and not just slash (contrast to _get_entry_path_slash())
+ * path and not just slash (contrast to get_entry_path_slash())
  */
 static char *get_entry_path_not_slash(const char *dir_path, 
 				      const char *entry_name)
@@ -61,7 +61,7 @@ static char *get_entry_path_not_slash(const char *dir_path,
 	return entry_path;
 }
 
-static inline bool is_slash(const char *dir_path)
+static bool is_slash(const char *dir_path)
 {
 	return (strcmp(dir_path, "/") == 0);
 }
@@ -74,10 +74,10 @@ static inline char *get_entry_path(const char *dir_path, const char *entry_name)
 		return get_entry_path_not_slash(dir_path, entry_name);
 }
 
-static void free_and_null_entries_dlist(struct entries_dlist **head)
+static void free_and_null_dtree(struct dtree **begin)
 {
-	free_entries_dlist(*head);
-	*head = NULL;
+	free_dtree(*begin);
+	*begin = NULL;
 }
 
 static inline void insert_fdata_fields(struct fdata *ptr, 
@@ -94,32 +94,32 @@ static int get_fdata_fields(struct fdata *ptr,
 {
 	int retval;
 	
-	if (!(retval = lstat(entry_path, ptr->fstatus)))
+	if (!(retval = lstat_inf(entry_path, ptr->fstatus)))
 		insert_fdata_fields(ptr, entry_name, nlen, entry_path, plen);
 	return retval;
 }
 
-static struct entries_dlist *_get_entry_info(const char *entry_path,
-					     const char *entry_name)
+static struct dtree *_get_entry_info(const char *entry_path, 
+				     const char *entry_name)
 {
 	size_t path_len, name_len;
-	struct entries_dlist *node;
+	struct dtree *node;
 
 	name_len = strlen(entry_name) + 1;
 	path_len = strlen(entry_path) + 1;
 
-	if ((node = alloc_entries_dlist(name_len, path_len)))
+	if ((node = alloc_dtree(name_len, path_len)))
 		if(get_fdata_fields(node->data->file_data, 
 				    entry_path, path_len,
 				    entry_name, name_len))
-			free_and_null_entries_dlist(&node);
+			free_and_null_dtree(&node);
 	return node;
 }
 
-static inline struct entries_dlist *get_entry_info(const char *dir_path, 
-						   const char *entry_name) 
+static inline struct dtree *get_entry_info(const char *dir_path, 
+					   const char *entry_name) 
 {
-	struct entries_dlist *node;
+	struct dtree *node;
 	char *entry_path;
 
 	node = NULL;
@@ -183,18 +183,15 @@ static struct entries_dlist *prepend_dot_entries(const char *dir_path,
 	return dot;
 }
 
-/*
- * A helper function for get_dirs_content()
- */
-static struct entries_dlist *_get_dirs_content(DIR *dp, const char *dir_path)
+static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 {
         struct dirent *entry;
-        struct entries_dlist *new_node;
-        struct entries_dlist *new_head;
-        struct entries_dlist *current;
-        struct entries_dlist *head;
+        struct dtree *new_node;
+        struct dtree *new_head;
+        struct dtree *current;
+        struct dtree *begin;
         
-	head = NULL;
+	begin = NULL;
 
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
@@ -226,19 +223,40 @@ err_free_entries_dlist:
 	return NULL;
 }
 
-struct entries_dlist *get_dirs_content(const char *path)
+static struct dtree *get_dir_content(const char *path, DIR *dp)
 {
-        struct entries_dlist *head;
+	struct dtree *new_begin, *new_node;
+	struct dtree *begin, *current;
+	struct dirent *entry;
+
+	begin = NULL;
+
+	while ((entry = readdir_inf(dp))) {
+		if (is_dot_entry(entry->d_name))
+			continue;
+		if (!(new_node = get_entry_info(path, entry->d_name)))
+			goto err_free_dtree;
+		if (begin)
+			current = connect_nodes(current, new_node);
+		else 
+			current = begin = new_node;
+		if (S_ISDIR(current->data->file_data->fstatus->st_mode))
+	}
+}
+
+struct dtree *get_dir_tree(const char *path)
+{
+        struct dtree *begin;
         DIR *dp;
 
-	head = NULL;
+	begin = NULL;
         if ((dp = opendir_inf(path))) {
-                head = _get_dirs_content(dp, path);
+                begin = _get_dir_tree(path, dp);
                 
-                if (closedir_inf(dp) && head)
-                        free_and_null_entries_dlist(&head);
+                if (closedir_inf(dp) && begin)
+                        free_and_null_dtree(&begin);
         }
-        return head;
+        return begin;
 }
 
 static inline int rm_file(const char *path)
@@ -267,7 +285,7 @@ static inline int _delete_entry_use_d_type(const char *entry_path,
 		return rm_file(entry_path);
 }
 
-static int _delete_entry(const char *entry_path, unsigned char d_type)
+static inline int _delete_entry(const char *entry_path, unsigned char d_type)
 {
 	if (d_type == DT_UNKNOWN)
 		return _delete_entry_use_lstat(entry_path);
@@ -275,9 +293,9 @@ static int _delete_entry(const char *entry_path, unsigned char d_type)
 		return _delete_entry_use_d_type(entry_path, d_type);
 }
 
-static inline int delete_entry(const char *dir_path, 
-			       const char *entry_name, 
-			       unsigned char d_type)
+static int delete_entry(const char *dir_path, 
+		        const char *entry_name, 
+			unsigned char d_type)
 {
 	char *entry_path;	
 	int retval;
@@ -293,25 +311,14 @@ static inline int delete_entry(const char *dir_path,
 static int _rm_dir_r(DIR *dp, const char *path)
 {
 	struct dirent *entry;
-	int retval;
 	
-	retval = 0;
-	/* 
-	 * Reset errno to 0 to distnguish between 
-	 * error and end of directory in readdir_inf() 
-	 */
-	errno = 0;
-
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
-		if ((retval = delete_entry(path, entry->d_name, entry->d_type)))
+		if (delete_entry(path, entry->d_name, entry->d_type))
 			return -1;
 	}
-	if (errno)
-		retval = -1;
-
-	return retval;
+	return ERROR ? -1 : 0;
 }
 
 /*
@@ -327,11 +334,11 @@ static int rm_dir_r(const char *path)
 		/* Remove directory's content */
 		retval = _rm_dir_r(dp, path);
 		
-		if (!closedir_inf(dp))
-			/* Remove the directory itself */
-			retval = rmdir_inf(path);
-		else
+		if (closedir_inf(dp))
 			retval = -1;
+		/* Remove the directory itself if it's already empty */
+		if (!retval)
+			retval = rmdir_inf(path);
 	}
 	return retval;
 }

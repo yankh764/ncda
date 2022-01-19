@@ -3,10 +3,9 @@
 
 #include "structs.h"
 
-struct entries_dlist *get_dirs_content(const char *);
+struct dtree *get_dir_tree(const char *);
 int rm_entry(const struct fdata *);
-off_t get_total_disk_usage(const struct entries_dlist *);
-struct size_format get_proper_size_format(off_t);
-int correct_dir_st_size(struct entries_dlist *);
+off_t get_total_disk_usage(const struct dtree *);
+int correct_dir_st_size(struct dtree *);
 
 #endif

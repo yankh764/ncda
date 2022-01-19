@@ -24,11 +24,16 @@ struct entry_data {
 	struct cdata *curses_data;
 };
 
-/* A doubly linked list for the entries found in a directory */
-struct entries_dlist {
-	struct entries_dlist *prev;
+/*
+ * An data structure for the directories' tree.
+ * It is some kind of a doubly linked list but with
+ * an additional dtree structure as a child node.
+ */
+struct dtree {
+	struct dtree *prev;
 	struct entry_data *data;
-	struct entries_dlist *next;
+	struct dtree *child;
+	struct dtree *next;
 };
 
 struct size_format {
@@ -36,7 +41,7 @@ struct size_format {
 	char *unit;
 };
 
-void *alloc_entries_dlist(size_t, size_t);
-void free_entries_dlist(struct entries_dlist *);
+void *alloc_dtree(size_t, size_t);
+void free_dtree(struct dtree *);
 
 #endif

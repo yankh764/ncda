@@ -1,5 +1,5 @@
-#ifndef _NCDA_H 
-#define _NCDA_H
+#ifndef _GENERAL_H 
+#define _GENERAL_H
 
 #include <time.h>
 #include <stdbool.h>

@@ -18,7 +18,7 @@ static inline void *alloc_stat()
         return malloc_inf(sizeof(struct stat));
 }
 
-static inline void *alloc_fdata(size_t name_len, size_t path_len)
+static void *alloc_fdata(size_t name_len, size_t path_len)
 {
 	struct fdata *retval;
 
@@ -55,7 +55,7 @@ static inline void *alloc_cdata()
 	return malloc_inf(sizeof(struct cdata));
 }
 
-static inline void *alloc_entry_data(size_t name_len, size_t path_len) 
+static void *alloc_entry_data(size_t name_len, size_t path_len) 
 {
 	struct entry_data *retval;
 
@@ -82,29 +82,32 @@ static void free_entry_data(struct entry_data *ptr)
 	free(ptr);
 }
 
-static inline void null_prev_and_next(struct entries_dlist *node)
+static inline void null_dtree_members(struct dtree *node)
 {
 	node->prev = NULL;
 	node->next = NULL;
+	node->child = NULL;
 }
 
-void *alloc_entries_dlist(size_t name_len, size_t path_len)
+void *alloc_dtree(size_t name_len, size_t path_len)
 {
-	struct entries_dlist *retval;
+	struct dtree *retval;
 
-	if ((retval = malloc_inf(sizeof(struct entries_dlist)))) {
+	if ((retval = malloc_inf(sizeof(struct dtree)))) {
 		if ((retval->data = alloc_entry_data(name_len, path_len)))
-			null_prev_and_next(retval);
+			null_dtree_members(retval);
 		else
 			free_and_null((void **) &retval);
 	}
 	return retval;
 }
 
-void free_entries_dlist(struct entries_dlist *head)
+void free_dtree(struct dtree *node)
 {
-	if (head->next)
-		free_entries_dlist(head->next);
-	free_entry_data(head->data);
-	free(head);
+	if (node->next)
+		free_dtree(node->next);
+	if (node->child)
+		free_dtree(node->child);
+	free_entry_data(node->data);
+	free(node);
 }

@@ -16,9 +16,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include "ncda.h"
+#include "general.h"
 #include "disk_man.h"
-#include "curses.h"
+#include "curses_man.h"
 
 /* End of a line */
 #define EOL -1
@@ -35,7 +35,7 @@
 #define SHLD_BE_BLUE(file_mode)	       S_ISDIR(file_mode)
 #define SHLD_BE_CYAN(file_mode)	       S_ISLNK(file_mode)
 #define SHLD_BE_MAGENTA(file_mode)     S_ISSOCK(file_mode)
-#define SHLD_BE_GREEN(file_mode)       S_ISREG(file_mode) && IS_EXEC(file_mode)
+#define SHLD_BE_GREEN(file_mode)      (S_ISREG(file_mode) && IS_EXEC(file_mode))
 #define SHLD_BE_YELLOW(file_mode)     (S_ISCHR(file_mode) || \
 				       S_ISBLK(file_mode) || \
 				       S_ISFIFO(file_mode))
@@ -50,7 +50,7 @@ enum COLOR_PAIRS_NUM {
 	DEFAULT_PAIR = 7
 };
 
-struct entries_dlist *_highligted_node; 
+struct dtree *_highligted_node; 
 
 
 /* Constant parameters */
@@ -62,13 +62,13 @@ const int _sep_blank = 2 * _blank;
 const int _fsize_init_x = 0;
 const int _mtime_init_x = 12;
 const int _fname_init_x = 27;
-const int _max_print_fsize = 8;
-const int _max_print_mtime = 11;
+const int _max_fsize_len = 8;
+const int _max_mtime_len = 11;
 const int _min_displayed_y = 2;
 
 
 
-static short get_color_pair_num(mode_t st_mode)
+static short get_cpair(mode_t st_mode)
 {
 	if (SHLD_BE_BLUE(st_mode))
 		return BLUE_PAIR;
@@ -84,10 +84,10 @@ static short get_color_pair_num(mode_t st_mode)
 		return DEFAULT_PAIR;
 }
 
-static short proper_color_pair(mode_t file_mode)
+static inline short proper_cpair(mode_t file_mode)
 {
 	if (COLORED_OUTPUT) 
-		return get_color_pair_num(file_mode);
+		return get_cpair(file_mode);
 	else 
 		return 0;
 }
@@ -101,19 +101,19 @@ static inline char proper_eos(mode_t file_mode)
 {
 	return S_ISDIR(file_mode) ? '/' : ' ';
 }
-
-static inline void insert_cdata_fields(struct entry_data *ptr, int i)
+/* LHONNNN WSLTTTTT */
+static void insert_cdata_fields(struct entry_data *ptr, int i)
 {
 	struct stat *const statbuf = ptr->file_data->fstatus;
 
-	ptr->curses_data->cpair = proper_color_pair(statbuf->st_mode);
+	ptr->curses_data->cpair = proper_cpair(statbuf->st_mode);
 	ptr->curses_data->y = i + _min_displayed_y;
 	ptr->curses_data->eos = proper_eos(statbuf->st_mode);
 }
 
-void nc_get_cdata_fields(struct entries_dlist *head)
+void nc_get_cdata_fields(struct dtree *begin)
 {
-	struct entries_dlist *current;
+	struct dtree *current;
 	unsigned int i;
 	
 	for (current=head, i=0; current; current=current->next, i++)
