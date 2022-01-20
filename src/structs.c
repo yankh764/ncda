@@ -5,10 +5,10 @@
 | This source file contains all the necessary components |
 | for managing the structures of the ncda prgoram.       |
 ----------------------------------------------------------
-*/
+*/ 
 
 #include <stdlib.h>
-#include "ncda.h"
+#include "general.h"
 #include "informative.h"
 #include "structs.h"
 
@@ -60,15 +60,15 @@ static void *alloc_entry_data(size_t name_len, size_t path_len)
 	struct entry_data *retval;
 
 	if ((retval = malloc_inf(sizeof(struct entry_data)))) {
-		if (!(retval->file_data = alloc_fdata(name_len, path_len)))
+		if (!(retval->file = alloc_fdata(name_len, path_len)))
 			goto err_free_entry_data;
-		if (!(retval->curses_data = alloc_cdata()))
+		if (!(retval->curses = alloc_cdata()))
 			goto err_free_fdata;
 	}
 	return retval;
 
 err_free_fdata:
-	free_fdata(retval->file_data);
+	free_fdata(retval->file);
 err_free_entry_data:
 	free(retval);
 
@@ -77,8 +77,8 @@ err_free_entry_data:
 
 static void free_entry_data(struct entry_data *ptr)
 {
-	free(ptr->curses_data);
-	free_fdata(ptr->file_data);
+	free(ptr->curses);
+	free_fdata(ptr->file);
 	free(ptr);
 }
 

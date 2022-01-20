@@ -15,13 +15,12 @@ struct fdata {
 struct cdata {
 	short cpair;
 	int y;
-	/* Equivalent to end of string */
-	char eos;
+	char eos; /* Equivalent to end of string */
 };
 
 struct entry_data {
-	struct fdata *file_data;
-	struct cdata *curses_data;
+	struct fdata *file;
+	struct cdata *curses;
 };
 
 /*

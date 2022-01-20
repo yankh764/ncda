@@ -37,6 +37,7 @@ static char *get_entry_path_slash(const char *entry_name)
 	char *entry_path;
 	size_t len;
 
+	/* 2 = the slash + null byte */
 	len = strlen(entry_name) + 2;
 
 	if ((entry_path = malloc_inf(len)))
@@ -54,6 +55,7 @@ static char *get_entry_path_not_slash(const char *dir_path,
 	char *entry_path;
         size_t len;
 	
+	/* 2 = the slash + null byte */
 	len = strlen(dir_path) + strlen(entry_name) + 2;
         
 	if ((entry_path = malloc_inf(len)))
@@ -89,8 +91,8 @@ static inline void insert_fdata_fields(struct fdata *ptr,
 }
 
 static int get_fdata_fields(struct fdata *ptr, 
-			    const char *entry_path, size_t plen,
-			    const char *entry_name, size_t nlen)
+			    const char *entry_name, size_t nlen, 
+			    const char *entry_path, size_t plen)
 {
 	int retval;
 	
@@ -99,8 +101,8 @@ static int get_fdata_fields(struct fdata *ptr,
 	return retval;
 }
 
-static struct dtree *_get_entry_info(const char *entry_path, 
-				     const char *entry_name)
+static struct dtree *_get_entry_info(const char *entry_name, 
+				     const char *entry_path)
 {
 	size_t path_len, name_len;
 	struct dtree *node;
@@ -109,22 +111,21 @@ static struct dtree *_get_entry_info(const char *entry_path,
 	path_len = strlen(entry_path) + 1;
 
 	if ((node = alloc_dtree(name_len, path_len)))
-		if(get_fdata_fields(node->data->file_data, 
-				    entry_path, path_len,
-				    entry_name, name_len))
+		if(get_fdata_fields(node->data->file, 
+				    entry_name, name_len,
+				    entry_path, path_len))
 			free_and_null_dtree(&node);
 	return node;
 }
 
-static inline struct dtree *get_entry_info(const char *dir_path, 
-					   const char *entry_name) 
+static struct dtree *get_entry_info(const char *dir_path, const char *entry_name) 
 {
 	struct dtree *node;
 	char *entry_path;
 
 	node = NULL;
 	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		node = _get_entry_info(entry_path, entry_name) ;
+		node = _get_entry_info(entry_name, entry_path) ;
 		free(entry_path);	
 	}
 	return node;
@@ -173,8 +174,8 @@ static struct entries_dlist *prepend_dot_entries(const char *dir_path,
 	struct entries_dlist *two_dots;
 	struct entries_dlist *dot;
 
-	if ((dot = get_entry_info(dir_path, "."))) {
-		if ((two_dots = get_entry_info(dir_path, "..")))
+	if ((dot = get_entry_info(".", dir_path))) {
+		if ((two_dots = get_entry_info("..", dir_path)))
 			connect_dot_entries(dot, two_dots, head);
 		else 
 			free_and_null_entries_dlist(&dot);
@@ -197,14 +198,14 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 		if (is_dot_entry(entry->d_name))
 			continue;
 		if (!(new_node = get_entry_info(dir_path, entry->d_name)))
-			goto err_free_entries_dlist;
-		if (head)
+			goto err_free_dtree;
+		if (begin)
 			current = connect_nodes(current, new_node);
 		else 
-			current = head = new_node;
+			current = begin = new_node;
 	}
 	if (ERROR)
-		goto err_free_entries_dlist;
+		goto err_free_dtree;
 	/* 
 	 * I want the dot entries to be the first 2 nodes 
 	 * of the doubly linked list so I skipped them in the 
@@ -217,9 +218,10 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 
 	return new_head;
 
-err_free_entries_dlist:
-	if (head)
-		free_entries_dlist(head);
+err_free_dtree:
+	if (begin)
+		free_dtree(begin);
+	
 	return NULL;
 }
 

@@ -17,7 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "informative.h"
-#include "ncda.h"
+#include "general.h"
 
 
 void free_and_null(void **ptr)
@@ -32,7 +32,7 @@ bool is_dot_entry(const char *entry_name)
 		strcmp(entry_name, "..") == 0);
 }
 
-static inline struct size_format proper_size_format(float size, char *unit)
+static struct size_format proper_size_format(float size, char *unit)
 {
 	struct size_format retval;
 
@@ -97,7 +97,7 @@ static char *_mtime_str(unsigned int num, char *period)
 	if (num == 1)
 		remove_plural_s(period);
 	/* 2 = space + null byte */
-	size = sizeof(unsigned int) + strlen(period) + 2;
+	size = sizeof(num) + strlen(period) + 2;
 	
 	if ((retval = malloc_inf(size)))
 		snprintf(retval, size, "%d %s", num, period);

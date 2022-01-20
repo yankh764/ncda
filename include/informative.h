@@ -16,8 +16,8 @@ int closedir_inf(DIR *);
 struct dirent *readdir_inf(DIR *);
 int unlink_inf(const char *);
 int rmdir_inf(const char *);
-int fclose_inf(FILE *fp);
 FILE *fopen_inf(const char *path, const char *mode);
+int fclose_inf(FILE *fp);
 time_t time_inf(time_t *);
 
 #endif
