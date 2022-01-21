@@ -84,6 +84,7 @@ static void free_entry_data(struct entry_data *ptr)
 
 static inline void null_dtree_members(struct dtree *node)
 {
+	node->parent = NULL;
 	node->prev = NULL;
 	node->next = NULL;
 	node->child = NULL;

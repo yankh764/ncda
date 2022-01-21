@@ -132,10 +132,12 @@ static struct dtree *get_entry_info(const char *dir_path, const char *entry_name
 }
 
 /*
+ * Connect tow nodes together when they are directory 
+ * mates (in the same directory).
  * The function returns the address of the new connected node
  */
-static inline struct entries_dlist *connect_nodes(struct entries_dlist *current, 
-				                  struct entries_dlist *new_node)
+static inline struct dtree *connect_mate_nodes(struct dtree *current, 
+				               struct dtree *new_node)
 {
 	current->next = new_node;
 	new_node->prev = current;
@@ -143,13 +145,27 @@ static inline struct entries_dlist *connect_nodes(struct entries_dlist *current,
 	return current->next;
 }
 
-static void connect_dot_entries(struct entries_dlist *dot, 
-				struct entries_dlist *two_dots, 
-				struct entries_dlist *head)
+/*
+ * Connect tow nodes together when they are directory parent and 
+ * child directory.
+ * The function returns the address of the new connected node
+ */
+static inline struct dtree *connect_family_nodes(struct dtree *current, 
+						 struct dtree *new_node)
 {
-	connect_nodes(dot, two_dots);
+	current->child = new_node;
+	new_node->parent = current;
+
+	return current->child;
+}
+
+static void connect_dot_entries(struct dtree *dot, 
+				struct dtree *two_dots, 
+				struct dtree *head)
+{
+	connect_mate_nodes(dot, two_dots);
 	if (head)
-		connect_nodes(two_dots, head);
+		connect_mate_nodes(two_dots, head);
 }
 
 static inline int ignore_eacces()
@@ -168,17 +184,16 @@ static int lstat_custom_fail(const char *path, struct stat *statbuf)
         return retval;
 }
 
-static struct entries_dlist *prepend_dot_entries(const char *dir_path, 
-					         struct entries_dlist *head)
+static struct dtree *prepend_dot_entries(const char *dir_path, 
+					 struct dtree *head)
 {
-	struct entries_dlist *two_dots;
-	struct entries_dlist *dot;
+	struct dtree *dot, *two_dots;
 
-	if ((dot = get_entry_info(".", dir_path))) {
-		if ((two_dots = get_entry_info("..", dir_path)))
+	if ((dot = get_entry_info(dir_path, "."))) {
+		if ((two_dots = get_entry_info(dir_path, "..")))
 			connect_dot_entries(dot, two_dots, head);
 		else 
-			free_and_null_entries_dlist(&dot);
+			free_and_null_dtree(&dot);
 		
 	}
 	return dot;
@@ -188,9 +203,10 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 {
         struct dirent *entry;
         struct dtree *new_node;
-        struct dtree *new_head;
+        struct dtree *new_begin;
         struct dtree *current;
         struct dtree *begin;
+	struct dtree *child;
         
 	begin = NULL;
 
@@ -200,9 +216,17 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 		if (!(new_node = get_entry_info(dir_path, entry->d_name)))
 			goto err_free_dtree;
 		if (begin)
-			current = connect_nodes(current, new_node);
+			current = connect_mate_nodes(current, new_node);
 		else 
 			current = begin = new_node;
+		if (S_ISDIR(current->data->file->fstatus->st_mode)) {
+			if ((child = get_dir_tree(current->data->file->fpath)))
+				connect_family_nodes(current, child);
+			else if (ERROR == EACCES)
+				ignore_eacces();
+			else
+				goto err_free_dtree;
+		}
 	}
 	if (ERROR)
 		goto err_free_dtree;
@@ -213,10 +237,10 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 	 * in which file names are read in readdir(). So I decided
 	 * to prepend them to the head node at the end of the function.
 	 */
-	if (!(new_head = prepend_dot_entries(dir_path, head)))
-		goto err_free_entries_dlist;
+	if (!(new_begin = prepend_dot_entries(dir_path, begin)))
+		goto err_free_dtree;
 
-	return new_head;
+	return new_begin;
 
 err_free_dtree:
 	if (begin)
@@ -225,35 +249,15 @@ err_free_dtree:
 	return NULL;
 }
 
-static struct dtree *get_dir_content(const char *path, DIR *dp)
-{
-	struct dtree *new_begin, *new_node;
-	struct dtree *begin, *current;
-	struct dirent *entry;
-
-	begin = NULL;
-
-	while ((entry = readdir_inf(dp))) {
-		if (is_dot_entry(entry->d_name))
-			continue;
-		if (!(new_node = get_entry_info(path, entry->d_name)))
-			goto err_free_dtree;
-		if (begin)
-			current = connect_nodes(current, new_node);
-		else 
-			current = begin = new_node;
-		if (S_ISDIR(current->data->file_data->fstatus->st_mode))
-	}
-}
-
 struct dtree *get_dir_tree(const char *path)
 {
         struct dtree *begin;
         DIR *dp;
 
 	begin = NULL;
+	
         if ((dp = opendir_inf(path))) {
-                begin = _get_dir_tree(path, dp);
+                begin = _get_dir_tree(dp, path);
                 
                 if (closedir_inf(dp) && begin)
                         free_and_null_dtree(&begin);
@@ -261,38 +265,53 @@ struct dtree *get_dir_tree(const char *path)
         return begin;
 }
 
-static inline int rm_file(const char *path)
+static int unlink_custom_fail(const char *path)
 {
-	return unlink_inf(path);
+	int retval;
+
+	if ((retval = unlink_inf(path)))
+		if (ERROR == EACCES)
+			retval = ignore_eacces();
+	return retval;
 }
 
-static inline int _delete_entry_use_lstat(const char *entry_path)
+static int rmdir_custom_fail(const char *path)
+{
+	int retval;
+
+	if ((retval = rmdir_inf(path)))
+		if (ERROR == EACCES)
+			retval = ignore_eacces();
+	return retval;
+}
+
+static int delete_entry_use_lstat(const char *entry_path)
 {
 	struct stat statbuf;
 
-	 if (lstat_inf(entry_path, &statbuf))
+	 if (lstat_custom_fail(entry_path, &statbuf))
 		 return -1;
 	 if (S_ISDIR(statbuf.st_mode))
 		return rm_dir_r(entry_path);
 	 else
-		 return rm_file(entry_path);
+		 return unlink_custom_fail(entry_path);
 }
 
-static inline int _delete_entry_use_d_type(const char *entry_path, 
-					   unsigned char d_type)
+static inline int delete_entry_use_d_type(const char *entry_path, 
+					  unsigned char d_type)
 {
 	if (d_type == DT_DIR)
 		return rm_dir_r(entry_path);
 	else
-		return rm_file(entry_path);
+		return unlink_custom_fail(entry_path);
 }
 
 static inline int _delete_entry(const char *entry_path, unsigned char d_type)
 {
 	if (d_type == DT_UNKNOWN)
-		return _delete_entry_use_lstat(entry_path);
+		return delete_entry_use_lstat(entry_path);
 	else
-		return _delete_entry_use_d_type(entry_path, d_type);
+		return delete_entry_use_d_type(entry_path, d_type);
 }
 
 static int delete_entry(const char *dir_path, 
@@ -332,15 +351,17 @@ static int rm_dir_r(const char *path)
 	DIR *dp;
 
 	retval = -1;
+
 	if ((dp = opendir_inf(path))) {
-		/* Remove directory's content */
 		retval = _rm_dir_r(dp, path);
 		
 		if (closedir_inf(dp))
 			retval = -1;
 		/* Remove the directory itself if it's already empty */
 		if (!retval)
-			retval = rmdir_inf(path);
+			retval = rmdir_custom_fail(path);
+	} else if (ERROR == EACCES) {
+		retval = ignore_eacces();
 	}
 	return retval;
 }
@@ -350,9 +371,9 @@ int rm_entry(const struct fdata *data)
 	if (S_ISDIR(data->fstatus->st_mode))
 		return rm_dir_r(data->fpath);
 	else
-		return rm_file(data->fpath);
+		return unlink_custom_fail(data->fpath);
 }
-
+/*
 off_t get_total_disk_usage(const struct entries_dlist *head)
 {
 	const struct entries_dlist *current;
@@ -432,11 +453,12 @@ static int correct_st_size(struct fdata *ptr)
 	
 	return retval;
 }
-
+*/
 /*
  * Is virtual file system (like /sys and /proc which are 
  * directories with size of 0 when "stat"ing them)
  */
+/*
 static inline bool is_virtfs(off_t size)
 {
 	return size == 0;
@@ -446,11 +468,12 @@ static inline bool is_unsupported_dir(const struct fdata *data)
 {
 	return is_virtfs(data->fstatus->st_size) || is_dot_entry(data->fname);
 }
-
+*/
 /*
  * Correct the st_size fields for the directories since it represents 
  * only the entry size and not with the actual directory's content size
  */
+/*
 int correct_dir_st_size(struct entries_dlist *head)
 {
 	struct entries_dlist *current;
@@ -465,3 +488,4 @@ int correct_dir_st_size(struct entries_dlist *head)
 				break;
 	return retval;
 }
+*/

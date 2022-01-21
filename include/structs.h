@@ -30,6 +30,7 @@ struct entry_data {
  */
 struct dtree {
 	struct dtree *prev;
+	struct dtree *parent;
 	struct entry_data *data;
 	struct dtree *child;
 	struct dtree *next;
