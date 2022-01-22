@@ -63,7 +63,7 @@ static char *get_entry_path_not_slash(const char *dir_path,
 	return entry_path;
 }
 
-static bool is_slash(const char *dir_path)
+static inline bool is_slash(const char *dir_path)
 {
 	return (strcmp(dir_path, "/") == 0);
 }
@@ -194,7 +194,6 @@ static struct dtree *prepend_dot_entries(const char *dir_path,
 			connect_dot_entries(dot, two_dots, head);
 		else 
 			free_and_null_dtree(&dot);
-		
 	}
 	return dot;
 }
@@ -373,17 +372,17 @@ int rm_entry(const struct fdata *data)
 	else
 		return unlink_custom_fail(data->fpath);
 }
-/*
-off_t get_total_disk_usage(const struct entries_dlist *head)
+
+off_t get_total_disk_usage(const struct dtree *begin)
 {
-	const struct entries_dlist *current;
+	const struct dtree *current;
 	off_t total;
 
-	for (current=head, total=0; current; current=current->next)
-		total += current->data->file_data->fstatus->st_size;
+	for (current=begin, total=0; current; current=current->next)
+		total += current->data->file->fstatus->st_size;
 	return total;
 }
-
+/*
 static off_t _get_dir_size(DIR *dp, const char *path)
 {
 	struct dirent *entry;
@@ -458,8 +457,7 @@ static int correct_st_size(struct fdata *ptr)
  * Is virtual file system (like /sys and /proc which are 
  * directories with size of 0 when "stat"ing them)
  */
-/*
-static inline bool is_virtfs(off_t size)
+static inline bool is_might_be_virtfs(off_t size)
 {
 	return size == 0;
 }
@@ -468,24 +466,22 @@ static inline bool is_unsupported_dir(const struct fdata *data)
 {
 	return is_virtfs(data->fstatus->st_size) || is_dot_entry(data->fname);
 }
-*/
+
 /*
  * Correct the st_size fields for the directories since it represents 
  * only the entry size and not with the actual directory's content size
  */
-/*
-int correct_dir_st_size(struct entries_dlist *head)
+int correct_dir_st_size(struct dtree *begin)
 {
-	struct entries_dlist *current;
+	struct dtree *current;
 	int retval;
 
 	retval = 0;
 
-	for (current=head; current; current=current->next)
-		if (S_ISDIR(current->data->file_data->fstatus->st_mode) &&
-		    !is_unsupported_dir(current->data->file_data))
-			if ((retval = correct_st_size(current->data->file_data)))
+	for (current=begin; current; current=current->next)
+		if (S_ISDIR(current->data->file->fstatus->st_mode) && 
+		    !is_unsupported_dir(current->data->file))
+			if ((retval = correct_st_size(current->data->file)))
 				break;
 	return retval;
 }
-*/
