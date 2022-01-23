@@ -26,7 +26,6 @@
 
 /* Necessary static functions prototype */
 static int rm_dir_r(const char *);
-static off_t get_dir_size(const char *);
 
 
 /*
@@ -379,109 +378,55 @@ off_t get_total_disk_usage(const struct dtree *begin)
 	off_t total;
 
 	for (current=begin, total=0; current; current=current->next)
-		total += current->data->file->fstatus->st_size;
+		if (!is_dot_entry(current->data->file->fname))
+			total += current->data->file->fstatus->st_size;
 	return total;
 }
-/*
-static off_t _get_dir_size(DIR *dp, const char *path)
-{
-	struct dirent *entry;
-	struct stat statbuf;
-	char *entry_path;
-	off_t size;
-	off_t ret;
 
-	errno = 0;
-	size = 0;
-
-	while ((entry = readdir_inf(dp))) {
-		if (is_dot_entry(entry->d_name))
-			continue;
-		if (!(entry_path = get_entry_path(path, entry->d_name)))
-			goto err_out;
-		if (lstat_custom_fail(entry_path, &statbuf))
-			goto err_free_entry_path;
-		if (S_ISDIR(statbuf.st_mode)) {
-			if ((ret = get_dir_size(entry_path)) == -1)
-				goto err_free_entry_path;
-			size += ret;
-		}
-		size += statbuf.st_size;
-		free(entry_path);
-	}
-	if (errno)
-		goto err_out;
-	
-	return size;
-
-err_free_entry_path:
-	free(entry_path);
-err_out:
-	return -1;
-}
-
-static off_t get_dir_size(const char *path)
-{
-	off_t retval;
-	DIR *dp;
-
-	retval = -1;
-
-	if ((dp = opendir_inf(path))) {
-		retval = _get_dir_size(dp, path);
-
-		if (closedir_inf(dp) && retval != -1)
-			retval = -1;
-	} else if (errno == EACCES) {
-		retval = ignore_eacces();
-	}
-	return retval;
-}
-
-static int correct_st_size(struct fdata *ptr)
-{
-	int retval;
-	off_t size;
-
-	retval = 0;
-
-	if ((size = get_dir_size(ptr->fpath)) == -1)
-		retval = -1;
-	else
-		ptr->fstatus->st_size += size;
-	
-	return retval;
-}
-*/
-/*
- * Is virtual file system (like /sys and /proc which are 
- * directories with size of 0 when "stat"ing them)
- */
-static inline bool is_might_be_virtfs(off_t size)
+static inline bool is_zero_sized(off_t size)
 {
 	return size == 0;
 }
 
-static inline bool is_unsupported_dir(const struct fdata *data)
+static inline bool is_irrelevant_dir(const struct fdata *data)
 {
-	return is_virtfs(data->fstatus->st_size) || is_dot_entry(data->fname);
+	return is_zero_sized(data->fstatus->st_size) || is_dot_entry(data->fname);
+}
+
+static inline bool is_relevant_dir_entry(const struct fdata *data)
+{
+	return S_ISDIR(data->fstatus->st_mode) && !is_irrelevant_dir(data);
+}
+
+/*
+ * Get the acctual directory size (the size of it's content)
+ */
+static off_t get_acc_dir_size(struct dtree *dir_ptr)
+{
+	struct dtree *first_entry;
+	struct dtree *current;
+	off_t total;
+
+	first_entry = dir_ptr->child;
+
+	for (current=first_entry, total=0; current; current=current->next) {
+		if (is_relevant_dir_entry(current->data->file))
+			current->data->file->fstatus->st_size = get_acc_dir_size(current);
+		if (!is_dot_entry(current->data->file->fname))
+			total += current->data->file->fstatus->st_size;
+	}
+	return total;
 }
 
 /*
  * Correct the st_size fields for the directories since it represents 
  * only the entry size and not with the actual directory's content size
  */
-int correct_dir_st_size(struct dtree *begin)
+void correct_dtree_st_size(struct dtree *begin)
 {
 	struct dtree *current;
-	int retval;
-
-	retval = 0;
 
 	for (current=begin; current; current=current->next)
-		if (S_ISDIR(current->data->file->fstatus->st_mode) && 
-		    !is_unsupported_dir(current->data->file))
-			if ((retval = correct_st_size(current->data->file)))
-				break;
-	return retval;
+		if (is_relevant_dir_entry(current->data->file))
+			current->data->file->fstatus->st_size = get_acc_dir_size(current);
 }
