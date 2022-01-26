@@ -372,30 +372,14 @@ int rm_entry(const struct fdata *data)
 		return unlink_custom_fail(data->fpath);
 }
 
-off_t get_total_disk_usage(const struct dtree *begin)
-{
-	const struct dtree *current;
-	off_t total;
-
-	for (current=begin, total=0; current; current=current->next)
-		if (!is_dot_entry(current->data->file->fname))
-			total += current->data->file->fstatus->st_size;
-	return total;
-}
-
 static inline bool is_zero_sized(off_t size)
 {
 	return size == 0;
 }
 
-static inline bool is_irrelevant_dir(const struct fdata *data)
+static inline bool is_relevant_dir_entry(const struct stat *statbuf)
 {
-	return is_zero_sized(data->fstatus->st_size) || is_dot_entry(data->fname);
-}
-
-static inline bool is_relevant_dir_entry(const struct fdata *data)
-{
-	return S_ISDIR(data->fstatus->st_mode) && !is_irrelevant_dir(data);
+	return S_ISDIR(statbuf->st_mode) && !is_zero_sized(statbuf->st_size);
 }
 
 /*
@@ -410,23 +394,30 @@ static off_t get_acc_dir_size(struct dtree *dir_ptr)
 	first_entry = dir_ptr->child;
 
 	for (current=first_entry, total=0; current; current=current->next) {
-		if (is_relevant_dir_entry(current->data->file))
+		/* Zero size dot entries so they won't be relevant */
+		if (is_dot_entry(current->data->file->fname))
+			current->data->file->fstatus->st_size = 0;
+		else if (is_relevant_dir_entry(current->data->file->fstatus))
 			current->data->file->fstatus->st_size = get_acc_dir_size(current);
-		if (!is_dot_entry(current->data->file->fname))
-			total += current->data->file->fstatus->st_size;
+
+		total += current->data->file->fstatus->st_size;
 	}
 	return total;
 }
 
 /*
  * Correct the st_size fields for the directories since it represents 
- * only the entry size and not with the actual directory's content size
+ * only the entry size and not with the actual directory's content size.
  */
 void correct_dtree_st_size(struct dtree *begin)
 {
 	struct dtree *current;
 
-	for (current=begin; current; current=current->next)
-		if (is_relevant_dir_entry(current->data->file))
-			current->data->file->fstatus->st_size = get_acc_dir_size(current);
+	for (current=begin; current; current=current->next) {
+		/* Zero dot entries' size so they won't be relevant */
+		if (is_dot_entry(current->data->file->fname))
+			current->data->file->fstatus->st_size = 0;
+		else if (is_relevant_dir_entry(current->data->file->fstatus))
+			current->data->file->fstatus->st_size = get_acc_dir_size(current);	
+	}
 }
