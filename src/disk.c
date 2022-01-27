@@ -21,7 +21,26 @@
 #include <stdbool.h>
 #include "general.h"
 #include "informative.h" 
-#include "disk_man.h"
+#include "curses_man.h"
+#include "disk.h"
+
+/*
+ * I defined these macros to get the appropriate entry color in an effiecient,
+ * fast and clear way without making an external function call that will 
+ * increase the overall execution time with the function-call overhead
+ * (forcing the inline)
+ */
+#define IS_EXEC(file_mode)	      ((file_mode & S_IXUSR) || \
+				       (file_mode & S_IXGRP) || \
+				       (file_mode & S_IXOTH))
+
+#define SHLD_BE_BLUE(file_mode)	       S_ISDIR(file_mode)
+#define SHLD_BE_CYAN(file_mode)	       S_ISLNK(file_mode)
+#define SHLD_BE_MAGENTA(file_mode)     S_ISSOCK(file_mode)
+#define SHLD_BE_GREEN(file_mode)      (S_ISREG(file_mode) && IS_EXEC(file_mode))
+#define SHLD_BE_YELLOW(file_mode)     (S_ISCHR(file_mode) || \
+				       S_ISBLK(file_mode) || \
+				       S_ISFIFO(file_mode))
 
 
 /* Necessary static functions prototype */
@@ -81,50 +100,89 @@ static void free_and_null_dtree(struct dtree **begin)
 	*begin = NULL;
 }
 
-static inline void insert_fdata_fields(struct fdata *ptr, 
-				       const char *name, size_t nlen, 
-				       const char *path, size_t plen)
-{
-	memcpy(ptr->fname, name, nlen);
-	memcpy(ptr->fpath, path, plen);
-}
-
-static int get_fdata_fields(struct fdata *ptr, 
-			    const char *entry_name, size_t nlen, 
-			    const char *entry_path, size_t plen)
+static int insert_fdata_fields(struct fdata *ptr, 
+			       const char *entry_name, size_t nlen, 
+			       const char *entry_path, size_t plen)
 {
 	int retval;
 	
-	if (!(retval = lstat_inf(entry_path, ptr->fstatus)))
-		insert_fdata_fields(ptr, entry_name, nlen, entry_path, plen);
+	if (!(retval = lstat_inf(entry_path, ptr->fstatus))) {
+		memcpy(ptr->fname, entry_name, nlen);
+		memcpy(ptr->fpath, entry_path, plen);
+	}
 	return retval;
 }
 
-static struct dtree *_get_entry_info(const char *entry_name, 
-				     const char *entry_path)
+static short get_cpair(mode_t mode)
 {
-	size_t path_len, name_len;
+	if (SHLD_BE_BLUE(mode))
+		return BLUE_PAIR;
+	else if (SHLD_BE_GREEN(mode))
+		return GREEN_PAIR;
+	else if (SHLD_BE_CYAN(mode))
+		return CYAN_PAIR;
+	else if (SHLD_BE_YELLOW(mode)) 
+		return YELLOW_PAIR;
+	else if (SHLD_BE_MAGENTA(mode))
+		return MAGENTA_PAIR;
+	else
+		return DEFAULT_PAIR;
+}
+
+static inline short proper_cpair(mode_t mode)
+{
+	if (COLORED_OUTPUT) 
+		return get_cpair(mode);
+	else 
+		return 0;
+}
+
+/*
+ * Get the proper end of a string. If the file is a directory the end of
+ * the string will be slash ('/'), else the end of a string will be blank
+ * character (' ').
+ */
+static inline char proper_eos(mode_t mode)
+{
+	return S_ISDIR(mode) ? '/' : ' ';
+}
+
+static inline void insert_cdata_fields(struct entry_data *ptr, int i)
+{
+	ptr->curses->cpair = proper_cpair(ptr->file->fstatus->st_mode);
+	ptr->curses->y = i + ;
+	ptr->curses->eos = proper_eos(ptr->file->fstatus->st_mode);
+}
+
+static struct dtree *_get_entry_info(const char *entry_name, 
+				     const char *entry_path,
+				     int i)
+{
 	struct dtree *node;
+	size_t plen, nlen;
 
-	name_len = strlen(entry_name) + 1;
-	path_len = strlen(entry_path) + 1;
+	nlen = strlen(entry_name) + 1;
+	plen = strlen(entry_path) + 1;
 
-	if ((node = alloc_dtree(name_len, path_len)))
-		if(get_fdata_fields(node->data->file, 
-				    entry_name, name_len,
-				    entry_path, path_len))
+	if ((node = alloc_dtree(nlen, plen))) {
+		if(!insert_fdata_fields(node->data->file, entry_name, nlen, entry_path, plen))
+			insert_cdata_fields(node->data, initial_y+i);
+		else
 			free_and_null_dtree(&node);
+	}
 	return node;
 }
 
-static struct dtree *get_entry_info(const char *dir_path, const char *entry_name) 
+static struct dtree *get_entry_info(const char *dir_path, 
+				    const char *entry_name,
+				    int i) 
 {
 	struct dtree *node;
 	char *entry_path;
 
 	node = NULL;
 	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		node = _get_entry_info(entry_name, entry_path) ;
+		node = _get_entry_info(entry_name, entry_path, i);
 		free(entry_path);	
 	}
 	return node;
@@ -158,15 +216,6 @@ static inline struct dtree *connect_family_nodes(struct dtree *current,
 	return current->child;
 }
 
-static void connect_dot_entries(struct dtree *dot, 
-				struct dtree *two_dots, 
-				struct dtree *head)
-{
-	connect_mate_nodes(dot, two_dots);
-	if (head)
-		connect_mate_nodes(two_dots, head);
-}
-
 static inline int ignore_eacces()
 {
 	ERROR = 0;
@@ -183,14 +232,15 @@ static int lstat_custom_fail(const char *path, struct stat *statbuf)
         return retval;
 }
 
-static struct dtree *prepend_dot_entries(const char *dir_path, 
-					 struct dtree *head)
+static inline struct dtree *get_dot_entries(const char *dir_path)
 {
 	struct dtree *dot, *two_dots;
+	const int tow_dots_num = 1;
+	const int dot_num = 0;
 
-	if ((dot = get_entry_info(dir_path, "."))) {
-		if ((two_dots = get_entry_info(dir_path, "..")))
-			connect_dot_entries(dot, two_dots, head);
+	if ((dot = get_entry_info(dir_path, ".", dot_num))) {
+		if ((two_dots = get_entry_info(dir_path, "..", tow_dots_num)))
+			connect_mate_nodes(dot, two_dots);
 		else 
 			free_and_null_dtree(&dot);
 	}
@@ -201,22 +251,26 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 {
         struct dirent *entry;
         struct dtree *new_node;
-        struct dtree *new_begin;
         struct dtree *current;
         struct dtree *begin;
 	struct dtree *child;
-        
-	begin = NULL;
+	
+	/* 
+	 * I want the dot entries to be the first 2 nodes 
+	 * of the doubly linked list so I'll add them seperately here 
+	 * because there's no guarentee for the order in which file 
+	 * names are read in readdir().
+	 */
+	if (!(current = begin = get_dot_entries(dir_path)))
+		goto err_out;
 
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
-		if (!(new_node = get_entry_info(dir_path, entry->d_name)))
+		if (!(new_node = get_entry_info(dir_path, entry->d_name, i++)))
 			goto err_free_dtree;
-		if (begin)
-			current = connect_mate_nodes(current, new_node);
-		else 
-			current = begin = new_node;
+		current = connect_mate_nodes(current, new_node);
+
 		if (S_ISDIR(current->data->file->fstatus->st_mode)) {
 			if ((child = get_dir_tree(current->data->file->fpath)))
 				connect_family_nodes(current, child);
@@ -228,22 +282,13 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 	}
 	if (ERROR)
 		goto err_free_dtree;
-	/* 
-	 * I want the dot entries to be the first 2 nodes 
-	 * of the doubly linked list so I skipped them in the 
-	 * while loop because there's no guarentee for the order 
-	 * in which file names are read in readdir(). So I decided
-	 * to prepend them to the head node at the end of the function.
-	 */
-	if (!(new_begin = prepend_dot_entries(dir_path, begin)))
-		goto err_free_dtree;
 
-	return new_begin;
+	return begin;
 
 err_free_dtree:
 	if (begin)
 		free_dtree(begin);
-	
+err_out:
 	return NULL;
 }
 
@@ -399,7 +444,6 @@ static off_t get_acc_dir_size(struct dtree *dir_ptr)
 			current->data->file->fstatus->st_size = 0;
 		else if (is_relevant_dir_entry(current->data->file->fstatus))
 			current->data->file->fstatus->st_size = get_acc_dir_size(current);
-
 		total += current->data->file->fstatus->st_size;
 	}
 	return total;

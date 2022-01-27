@@ -1,5 +1,5 @@
-#ifndef _DISK_MAN_H
-#define _DISK_MAN_H
+#ifndef _DISK_H
+#define _DISK_H
 
 #include "structs.h"
 

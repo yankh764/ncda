@@ -16,39 +16,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include "disk.h"
 #include "general.h"
-#include "disk_man.h"
 #include "curses_man.h"
 
 /* End of a line */
 #define EOL -1
-/*
- * I defined these macros to get the appropriate entry color in an effiecient,
- * fast and clear way without making an external function call that will 
- * increase the overall execution time with the function-call overhead
- * (forcing the inline)
- */
-#define IS_EXEC(file_mode)	      ((file_mode & S_IXUSR) || \
-				       (file_mode & S_IXGRP) || \
-				       (file_mode & S_IXOTH))
 
-#define SHLD_BE_BLUE(file_mode)	       S_ISDIR(file_mode)
-#define SHLD_BE_CYAN(file_mode)	       S_ISLNK(file_mode)
-#define SHLD_BE_MAGENTA(file_mode)     S_ISSOCK(file_mode)
-#define SHLD_BE_GREEN(file_mode)      (S_ISREG(file_mode) && IS_EXEC(file_mode))
-#define SHLD_BE_YELLOW(file_mode)     (S_ISCHR(file_mode) || \
-				       S_ISBLK(file_mode) || \
-				       S_ISFIFO(file_mode))
-
-enum COLOR_PAIRS_NUM {
-	BLUE_PAIR =  1,
-	GREEN_PAIR = 2, 
-	YELLOW_PAIR = 3,
-	CYAN_PAIR = 4,
-	MAGENTA_PAIR = 5,
-	RED_PAIR = 6,
-	DEFAULT_PAIR = 7
-};
 
 struct dtree *_highligted_node; 
 
@@ -64,60 +38,20 @@ const int _mtime_init_x = 12;
 const int _fname_init_x = 27;
 const int _max_fsize_len = 8;
 const int _max_mtime_len = 11;
-const int _min_displayed_y = 2;
 
 
 
-static short get_cpair(mode_t st_mode)
-{
-	if (SHLD_BE_BLUE(st_mode))
-		return BLUE_PAIR;
-	else if (SHLD_BE_GREEN(st_mode))
-		return GREEN_PAIR;
-	else if (SHLD_BE_CYAN(st_mode))
-		return CYAN_PAIR;
-	else if (SHLD_BE_YELLOW(st_mode)) 
-		return YELLOW_PAIR;
-	else if (SHLD_BE_MAGENTA(st_mode))
-		return MAGENTA_PAIR;
-	else
-		return DEFAULT_PAIR;
-}
 
-static inline short proper_cpair(mode_t file_mode)
-{
-	if (COLORED_OUTPUT) 
-		return get_cpair(file_mode);
-	else 
-		return 0;
-}
-
-/*
- * Get the proper end of a string. If the file is a directory the end of
- * the string will be slash ('/'), else the end of a string will be blank
- * character (' ').
- */
-static inline char proper_eos(mode_t file_mode)
-{
-	return S_ISDIR(file_mode) ? '/' : ' ';
-}
-/* LHONNNN WSLTTTTT */
-static void insert_cdata_fields(struct entry_data *ptr, int i)
-{
-	struct stat *const statbuf = ptr->file_data->fstatus;
-
-	ptr->curses_data->cpair = proper_cpair(statbuf->st_mode);
-	ptr->curses_data->y = i + _min_displayed_y;
-	ptr->curses_data->eos = proper_eos(statbuf->st_mode);
-}
-
-void nc_get_cdata_fields(struct dtree *begin)
+void nc_insert_cdata_fields(struct dtree *begin)
 {
 	struct dtree *current;
 	unsigned int i;
 	
-	for (current=head, i=0; current; current=current->next, i++)
-		insert_cdata_fields(current->data, i);
+	for (current=begin, i=0; current; current=current->next, i++) {
+		if (current->child)
+			nc_get_cdata_fields(current->child);
+		insert_cdata_fields(current, i);
+	}
 }
 
 static int print_separator(WINDOW *wp, int y, int x)
