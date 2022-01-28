@@ -21,9 +21,9 @@
 #include <stdbool.h>
 #include "general.h"
 #include "informative.h" 
-#include "curses_man.h"
 #include "disk.h"
 
+#define IGNORE_EACCES() (ERROR = 0)
 /*
  * I defined these macros to get the appropriate entry color in an effiecient,
  * fast and clear way without making an external function call that will 
@@ -41,7 +41,6 @@
 #define SHLD_BE_YELLOW(file_mode)     (S_ISCHR(file_mode) || \
 				       S_ISBLK(file_mode) || \
 				       S_ISFIFO(file_mode))
-
 
 /* Necessary static functions prototype */
 static int rm_dir_r(const char *);
@@ -113,7 +112,7 @@ static int insert_fdata_fields(struct fdata *ptr,
 	return retval;
 }
 
-static short get_cpair(mode_t mode)
+static short proper_cpair(mode_t mode)
 {
 	if (SHLD_BE_BLUE(mode))
 		return BLUE_PAIR;
@@ -129,14 +128,6 @@ static short get_cpair(mode_t mode)
 		return DEFAULT_PAIR;
 }
 
-static inline short proper_cpair(mode_t mode)
-{
-	if (COLORED_OUTPUT) 
-		return get_cpair(mode);
-	else 
-		return 0;
-}
-
 /*
  * Get the proper end of a string. If the file is a directory the end of
  * the string will be slash ('/'), else the end of a string will be blank
@@ -147,16 +138,18 @@ static inline char proper_eos(mode_t mode)
 	return S_ISDIR(mode) ? '/' : ' ';
 }
 
-static inline void insert_cdata_fields(struct entry_data *ptr, int i)
+static inline void insert_cdata_fields(struct entry_data *ptr, int node_i)
 {
+	const int init_displayed_y = 2;
+
 	ptr->curses->cpair = proper_cpair(ptr->file->fstatus->st_mode);
-	ptr->curses->y = i + ;
+	ptr->curses->y = init_displayed_y + node_i;
 	ptr->curses->eos = proper_eos(ptr->file->fstatus->st_mode);
 }
 
 static struct dtree *_get_entry_info(const char *entry_name, 
 				     const char *entry_path,
-				     int i)
+				     int node_i)
 {
 	struct dtree *node;
 	size_t plen, nlen;
@@ -166,7 +159,7 @@ static struct dtree *_get_entry_info(const char *entry_name,
 
 	if ((node = alloc_dtree(nlen, plen))) {
 		if(!insert_fdata_fields(node->data->file, entry_name, nlen, entry_path, plen))
-			insert_cdata_fields(node->data, initial_y+i);
+			insert_cdata_fields(node->data, node_i);
 		else
 			free_and_null_dtree(&node);
 	}
@@ -175,14 +168,15 @@ static struct dtree *_get_entry_info(const char *entry_name,
 
 static struct dtree *get_entry_info(const char *dir_path, 
 				    const char *entry_name,
-				    int i) 
+				    int node_i) 
 {
 	struct dtree *node;
 	char *entry_path;
 
 	node = NULL;
+	
 	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		node = _get_entry_info(entry_name, entry_path, i);
+		node = _get_entry_info(entry_name, entry_path, node_i);
 		free(entry_path);	
 	}
 	return node;
@@ -203,7 +197,7 @@ static inline struct dtree *connect_mate_nodes(struct dtree *current,
 }
 
 /*
- * Connect tow nodes together when they are directory parent and 
+ * Connect tow nodes together when they are parent directory and 
  * child directory.
  * The function returns the address of the new connected node
  */
@@ -216,30 +210,27 @@ static inline struct dtree *connect_family_nodes(struct dtree *current,
 	return current->child;
 }
 
-static inline int ignore_eacces()
-{
-	ERROR = 0;
-	return 0;
-}
-
 static int lstat_custom_fail(const char *path, struct stat *statbuf)
 {
         int retval;
 
         if ((retval = lstat_inf(path, statbuf)))
                 if (ERROR == EACCES)
-                        retval = ignore_eacces();
+                        retval = IGNORE_EACCES();
         return retval;
 }
 
+/*
+ * Return the address of the beggining (the dot entry) 
+ */
 static inline struct dtree *get_dot_entries(const char *dir_path)
 {
 	struct dtree *dot, *two_dots;
-	const int tow_dots_num = 1;
-	const int dot_num = 0;
+	const int tow_dots_i = 1;
+	const int dot_i = 0;
 
-	if ((dot = get_entry_info(dir_path, ".", dot_num))) {
-		if ((two_dots = get_entry_info(dir_path, "..", tow_dots_num)))
+	if ((dot = get_entry_info(dir_path, ".", dot_i))) {
+		if ((two_dots = get_entry_info(dir_path, "..", tow_dots_i)))
 			connect_mate_nodes(dot, two_dots);
 		else 
 			free_and_null_dtree(&dot);
@@ -254,6 +245,7 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
         struct dtree *current;
         struct dtree *begin;
 	struct dtree *child;
+	int i;
 	
 	/* 
 	 * I want the dot entries to be the first 2 nodes 
@@ -261,8 +253,14 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 	 * because there's no guarentee for the order in which file 
 	 * names are read in readdir().
 	 */
-	if (!(current = begin = get_dot_entries(dir_path)))
+	if (!(begin = get_dot_entries(dir_path)))
 		goto err_out;
+	/* 
+	 * The initial i is equal to 2 because i=0 goes to
+	 * the dot entry and i=1 goes to the tow_dots entry
+	 */
+	i = 2;
+	current = begin->next;
 
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
@@ -275,7 +273,7 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 			if ((child = get_dir_tree(current->data->file->fpath)))
 				connect_family_nodes(current, child);
 			else if (ERROR == EACCES)
-				ignore_eacces();
+				IGNORE_EACCES();
 			else
 				goto err_free_dtree;
 		}
@@ -286,8 +284,7 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 	return begin;
 
 err_free_dtree:
-	if (begin)
-		free_dtree(begin);
+	free_dtree(begin);
 err_out:
 	return NULL;
 }
@@ -314,7 +311,7 @@ static int unlink_custom_fail(const char *path)
 
 	if ((retval = unlink_inf(path)))
 		if (ERROR == EACCES)
-			retval = ignore_eacces();
+			retval = IGNORE_EACCES();
 	return retval;
 }
 
@@ -324,7 +321,7 @@ static int rmdir_custom_fail(const char *path)
 
 	if ((retval = rmdir_inf(path)))
 		if (ERROR == EACCES)
-			retval = ignore_eacces();
+			retval = IGNORE_EACCES();
 	return retval;
 }
 
@@ -404,7 +401,7 @@ static int rm_dir_r(const char *path)
 		if (!retval)
 			retval = rmdir_custom_fail(path);
 	} else if (ERROR == EACCES) {
-		retval = ignore_eacces();
+		retval = IGNORE_EACCES();
 	}
 	return retval;
 }

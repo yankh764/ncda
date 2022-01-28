@@ -26,7 +26,6 @@
 
 struct dtree *_highligted_node; 
 
-
 /* Constant parameters */
 const int _def_attrs = A_BOLD;
 const int _borders_cpair = CYAN_PAIR;
@@ -39,20 +38,6 @@ const int _fname_init_x = 27;
 const int _max_fsize_len = 8;
 const int _max_mtime_len = 11;
 
-
-
-
-void nc_insert_cdata_fields(struct dtree *begin)
-{
-	struct dtree *current;
-	unsigned int i;
-	
-	for (current=begin, i=0; current; current=current->next, i++) {
-		if (current->child)
-			nc_get_cdata_fields(current->child);
-		insert_cdata_fields(current, i);
-	}
-}
 
 static int print_separator(WINDOW *wp, int y, int x)
 {
@@ -86,7 +71,7 @@ static int print_fsize(WINDOW *wp, int y, off_t bytes)
 	if (COLORED_OUTPUT)
 		if (dye_fsize(wp, y))
 			return -1;
-	sep_x = _fsize_init_x + _max_print_fsize + _sep_blank;
+	sep_x = _fsize_init_x + _max_fsize_len + _sep_blank;
 	
 	return print_separator(wp, y, sep_x);
 }
@@ -111,7 +96,7 @@ static int print_mtime(WINDOW *wp, int y, time_t mtime)
 		if (dye_mtime(wp, y))
 			goto err_free_buf;
 	free(buffer);
-	sep_x = _mtime_init_x + _max_print_mtime + _sep_blank;
+	sep_x = _mtime_init_x + _max_mtime_len + _sep_blank;
 	
 	return print_separator(wp, y, sep_x);
 
@@ -141,21 +126,21 @@ static int print_separators_only(WINDOW *wp, int y)
 	int x1; 
 	int x2;
 
-	x1 = _fsize_init_x + _max_print_fsize + _sep_blank;
-	x2 = _mtime_init_x + _max_print_mtime + _sep_blank;
+	x1 = _fsize_init_x + _max_fsize_len + _sep_blank;
+	x2 = _mtime_init_x + _max_mtime_len + _sep_blank;
 
 	return (print_separator(wp, y, x1) || 
 		print_separator(wp, y, x2)) ? -1 : 0;
 }
 
-static int display_entries_info(WINDOW *wp, const struct entries_dlist *node)
+static int display_entries_info(WINDOW *wp, const struct dtree *node)
 {
-	const time_t mtime = node->data->file_data->fstatus->st_mtim.tv_sec;
-	const off_t fsize = node->data->file_data->fstatus->st_size;
-	const short color_pair = node->data->curses_data->cpair;
-	const char *const name = node->data->file_data->fname;
-	const char eos = node->data->curses_data->eos;
-	const int y = node->data->curses_data->y;
+	const time_t mtime = node->data->file->fstatus->st_mtim.tv_sec;
+	const off_t fsize = node->data->file->fstatus->st_size;
+	const short color_pair = node->data->curses->cpair;
+	const char *const name = node->data->file->fname;
+	const char eos = node->data->curses->eos;
+	const int y = node->data->curses->y;
 	
 	if (is_dot_entry(name)) {
 		if (print_separators_only(wp, y))
@@ -185,15 +170,15 @@ static bool is_between_page_borders(WINDOW *wp, int current_y)
 	return (min_y <= current_y) && (max_y >= current_y);
 }
 
-int display_entries(WINDOW *wp, const struct entries_dlist *ptr) 
+int display_entries(WINDOW *wp, const struct dtree *ptr) 
 {
-	const struct entries_dlist *current;
+	const struct dtree *current;
 	int retval;
 
 	retval = 0;
 
 	for (current=ptr; current; current=current->next) {
-		if (!is_between_page_borders(wp, current->data->curses_data->y))
+		if (!is_between_page_borders(wp, current->data->curses->y))
 			break;
 		if ((retval = display_entries_info(wp, current)) == -1)
 			break;
@@ -270,8 +255,18 @@ static int print_path_summary(WINDOW *wp, int y, int x, const char *path)
 	return (mvwprintw(wp, y, x, "Path: %s", path) == ERR) ? -1 : 0;
 }
 
+static off_t get_total_disk_usage(const struct dtree *begin)
+{
+	const struct dtree *current;
+	off_t total;
+
+	for (current=begin, total=0; current; current=current->next)
+		total += current->data->file->fstatus->st_size;
+	return total;
+}
+
 static int print_usage_summary(WINDOW *wp, int y, int max_x,
-			       const struct entries_dlist *head)
+			       const struct dtree *head)
 {
 	const char *message = "Total Disk Usage:";
 	struct size_format format;
@@ -279,14 +274,15 @@ static int print_usage_summary(WINDOW *wp, int y, int max_x,
 
 	format = get_proper_size_format(get_total_disk_usage(head));
 	/* The 1 is because I added another digit after the floating point */
-	len = strlen(message) + _blank + _max_print_fsize + 1;
+	len = strlen(message) + _blank + _max_fsize_len + 1;
 
 	return (mvwprintw(wp, y, max_x-len, "%s %0.2f %s", 
 			  message, format.val, format.unit) == ERR) ? -1 : 0;
 }
 
 static int summary_message(WINDOW *wp, int y, int x,
-			   const struct entries_dlist *head, const char *path)
+			   const struct dtree *head, 
+			   const char *path)
 {
 	const int begin_x = 1;
 
@@ -295,7 +291,7 @@ static int summary_message(WINDOW *wp, int y, int x,
 }
 
 static int display_summary_message(WINDOW *wp, 
-		   		   const struct entries_dlist *head, 
+		   		   const struct dtree *head, 
 				   const char *current_path)
 {
 	const int attrs = A_REVERSE | A_BOLD;
@@ -370,8 +366,8 @@ static inline int restore_entry_colors(WINDOW *wp, int y, short cpair)
 
 static int restore_prev_entry_design(WINDOW *wp)
 {
-	const short cpair = _highligted_node->prev->data->curses_data->cpair;
-	const int y = _highligted_node->prev->data->curses_data->y;
+	const short cpair = _highligted_node->prev->data->curses->cpair;
+	const int y = _highligted_node->prev->data->curses->y;
 	const int begin_x = 0;
 	
 	if (mvwchgat(wp, y, begin_x, EOL, _def_attrs, 0, NULL) == ERR)
@@ -384,8 +380,8 @@ static int restore_prev_entry_design(WINDOW *wp)
 
 static int restore_next_entry_design(WINDOW *wp)
 {
-	const short cpair = _highligted_node->next->data->curses_data->cpair;
-	const int y = _highligted_node->next->data->curses_data->y;
+	const short cpair = _highligted_node->next->data->curses->cpair;
+	const int y = _highligted_node->next->data->curses->y;
 	const int begin_x = 0;
 	
 	if (mvwchgat(wp, y, begin_x, EOL, _def_attrs, 0, NULL) == ERR)
@@ -408,7 +404,7 @@ static inline int restore_entry_design(WINDOW *wp, int key)
 
 static inline int update_highlight_loc(WINDOW *wp, int key)
 {
-	const int y = _highligted_node->data->curses_data->y;
+	const int y = _highligted_node->data->curses->y;
 	const int attrs = _def_attrs | A_REVERSE;
 	const int begin_x = 0;
 
@@ -420,11 +416,11 @@ static inline int update_highlight_loc(WINDOW *wp, int key)
 		return (wrefresh(wp) == ERR) ? -1 : 0;
 }
 
-static int init_highlight(WINDOW *wp, const struct entries_dlist *head)
+static int init_highlight(WINDOW *wp, const struct dtree *head)
 {
 	const char null = '\0';
 
-	_highligted_node = (struct entries_dlist *) head;
+	_highligted_node = (struct dtree *) head;
 	
 	return update_highlight_loc(wp, null);
 }
@@ -433,7 +429,7 @@ static int init_highlight(WINDOW *wp, const struct entries_dlist *head)
  * The initial display for each window
  */
 int nc_initial_display(WINDOW *wp, 
-		       const struct entries_dlist *head,
+		       const struct dtree *head,
 		       const char *current_path)
 {
 	return (display_opening_message(wp) || create_borders(wp) ||
@@ -479,9 +475,9 @@ static int in_navigation_keys(int c)
 		return 0;
 }
 
-static inline struct entries_dlist *change_highlighted_node(int key)
+static inline struct dtree *change_highlighted_node(int key)
 {
-	struct entries_dlist *retval;
+	struct dtree *retval;
 
 	if (key == KEY_DOWN && _highligted_node->next)
 		retval =_highligted_node = _highligted_node->next;
@@ -493,16 +489,16 @@ static inline struct entries_dlist *change_highlighted_node(int key)
 	return retval;
 }
 
-static struct entries_dlist *decrease_prev_y()
+static struct dtree *decrease_prev_y()
 {
 	const int min_y = 2;
-	struct entries_dlist *current, *retval;
+	struct dtree *current, *retval;
 
 	retval = NULL;
 	for (current=_highligted_node->prev; current; current=current->prev) {
-		current->data->curses_data->y -= 1;
+		current->data->curses->y -= 1;
 		
-		if (current->data->curses_data->y == min_y)
+		if (current->data->curses->y == min_y)
 			retval = current;
 	}
 	return retval;
@@ -510,21 +506,21 @@ static struct entries_dlist *decrease_prev_y()
 
 static void decrease_next_y()
 {
-	struct entries_dlist *current;
+	struct dtree *current;
 
 	for (current=_highligted_node->next; current; current=current->next)
-		current->data->curses_data->y -= 1;
+		current->data->curses->y -= 1;
 }
 
 /*
  * Returns the fisrt node then needs to be displayed on the screen
  */
-static struct entries_dlist *decrease_nodes_y()
+static struct dtree *decrease_nodes_y()
 {
-	struct entries_dlist *retval;
+	struct dtree *retval;
 
 	/* Decrease the currently highlighted node's y*/
-	_highligted_node->data->curses_data->y -= 1;
+	_highligted_node->data->curses->y -= 1;
 	retval = decrease_prev_y();
 	decrease_next_y();
 
@@ -533,29 +529,29 @@ static struct entries_dlist *decrease_nodes_y()
 
 static void increase_prev_y()
 {
-	struct entries_dlist *current;
+	struct dtree *current;
 
 	for (current=_highligted_node->prev; current; current=current->prev)
-		current->data->curses_data->y += 1;
+		current->data->curses->y += 1;
 }
 
 static void increase_next_y()
 {
-	struct entries_dlist *current;
+	struct dtree *current;
 
 	for (current=_highligted_node->next; current; current=current->next)
-		current->data->curses_data->y += 1;
+		current->data->curses->y += 1;
 }
 
 /*
  * Returns the fisrt node then needs to be displayed on the screen
  */
-static struct entries_dlist *increase_nodes_y()
+static struct dtree *increase_nodes_y()
 {
-	struct entries_dlist *retval;
+	struct dtree *retval;
 
 	/* Increase the currently highlighted node's y*/
-	_highligted_node->data->curses_data->y += 1;
+	_highligted_node->data->curses->y += 1;
 	retval = _highligted_node;
 	increase_prev_y();
 	increase_next_y();
@@ -563,7 +559,7 @@ static struct entries_dlist *increase_nodes_y()
 	return retval;
 }
 
-static inline struct entries_dlist *correct_nodes_y(int key)
+static inline struct dtree *correct_nodes_y(int key)
 {
 	if (key == KEY_DOWN)
 		return decrease_nodes_y();
@@ -590,11 +586,11 @@ static int clear_display(WINDOW *wp)
 
 static int manage_navigation_input(WINDOW *wp, int key)
 {
-	struct entries_dlist *beginning;
+	struct dtree *beginning;
 
 	if (!change_highlighted_node(key))
 		return 0;
-	if (!is_between_page_borders(wp, _highligted_node->data->curses_data->y)) {
+	if (!is_between_page_borders(wp, _highligted_node->data->curses->y)) {
 		beginning = correct_nodes_y(key);
 		
 		if (clear_display(wp) || display_entries(wp, beginning))
