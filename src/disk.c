@@ -184,30 +184,24 @@ static struct dtree *get_entry_info(const char *dir_path,
 
 /*
  * Connect tow nodes together when they are directory 
- * mates (in the same directory).
- * The function returns the address of the new connected node
+ * mates (i.e in the same directory).
  */
-static inline struct dtree *connect_mate_nodes(struct dtree *current, 
-				               struct dtree *new_node)
+static inline void connect_mate_nodes(struct dtree *current, 
+				      struct dtree *new_node)
 {
 	current->next = new_node;
 	new_node->prev = current;
-
-	return current->next;
 }
 
 /*
  * Connect tow nodes together when they are parent directory and 
  * child directory.
- * The function returns the address of the new connected node
  */
-static inline struct dtree *connect_family_nodes(struct dtree *current, 
-						 struct dtree *new_node)
+static inline void connect_family_nodes(struct dtree *current, 
+					struct dtree *new_node)
 {
 	current->child = new_node;
 	new_node->parent = current;
-
-	return current->child;
 }
 
 static int lstat_custom_fail(const char *path, struct stat *statbuf)
@@ -221,9 +215,9 @@ static int lstat_custom_fail(const char *path, struct stat *statbuf)
 }
 
 /*
- * Return the address of the beggining (the dot entry) 
+ * Returns the address of the beggining (the dot entry) 
  */
-static inline struct dtree *get_dot_entries(const char *dir_path)
+static struct dtree *get_dot_entries(const char *dir_path)
 {
 	struct dtree *dot, *two_dots;
 	const int tow_dots_i = 1;
@@ -247,12 +241,6 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 	struct dtree *child;
 	int i;
 	
-	/* 
-	 * I want the dot entries to be the first 2 nodes 
-	 * of the doubly linked list so I'll add them seperately here 
-	 * because there's no guarentee for the order in which file 
-	 * names are read in readdir().
-	 */
 	if (!(begin = get_dot_entries(dir_path)))
 		goto err_out;
 	/* 
@@ -267,8 +255,10 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 			continue;
 		if (!(new_node = get_entry_info(dir_path, entry->d_name, i++)))
 			goto err_free_dtree;
-		current = connect_mate_nodes(current, new_node);
 
+		connect_mate_nodes(current, new_node);
+		current = new_node;
+			
 		if (S_ISDIR(current->data->file->fstatus->st_mode)) {
 			if ((child = get_dir_tree(current->data->file->fpath)))
 				connect_family_nodes(current, child);
@@ -291,18 +281,18 @@ err_out:
 
 struct dtree *get_dir_tree(const char *path)
 {
-        struct dtree *begin;
+        struct dtree *retval;
         DIR *dp;
 
-	begin = NULL;
+	retval = NULL;
 	
         if ((dp = opendir_inf(path))) {
-                begin = _get_dir_tree(dp, path);
+                retval = _get_dir_tree(dp, path);
                 
-                if (closedir_inf(dp) && begin)
-                        free_and_null_dtree(&begin);
+                if (closedir_inf(dp) && retval)
+                        free_and_null_dtree(&retval);
         }
-        return begin;
+        return retval;
 }
 
 static int unlink_custom_fail(const char *path)

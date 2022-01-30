@@ -105,10 +105,14 @@ void *alloc_dtree(size_t name_len, size_t path_len)
 
 void free_dtree(struct dtree *node)
 {
-	if (node->next)
-		free_dtree(node->next);
-	if (node->child)
-		free_dtree(node->child);
-	free_entry_data(node->data);
-	free(node);
+	struct dtree *current, *next;
+	
+	for (current=node; current; current=next) {
+		next = current->next;
+
+		if (current->child)
+			free_dtree(current->child);
+		free_entry_data(current->data);
+		free(current);
+	}
 }

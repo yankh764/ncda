@@ -24,8 +24,6 @@
 #define EOL -1
 
 
-struct dtree *_highligted_node; 
-
 /* Constant parameters */
 const int _def_attrs = A_BOLD;
 const int _borders_cpair = CYAN_PAIR;
@@ -38,13 +36,15 @@ const int _fname_init_x = 27;
 const int _max_fsize_len = 8;
 const int _max_mtime_len = 11;
 
+struct dtree *_highligted_node; 
 
-static int print_separator(WINDOW *wp, int y, int x)
+
+static inline int print_separator(WINDOW *wp, int y, int x)
 {
 	return (mvwprintw(wp, y, x, "%c", _separator) == ERR) ? -1 : 0;
 }
 
-static int dye_val(WINDOW *wp, int y, int x, int len)
+static inline int dye_val(WINDOW *wp, int y, int x, int len)
 {
 	const short cpair = YELLOW_PAIR;;
 
@@ -65,8 +65,7 @@ static int print_fsize(WINDOW *wp, int y, off_t bytes)
 
 	format = get_proper_size_format(bytes);
 
-	if (mvwprintw(wp, y, _fsize_init_x, "%5.1f %s", 
-		      format.val, format.unit) == ERR)
+	if (mvwprintw(wp, y, _fsize_init_x, "%5.1f %s", format.val, format.unit) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
 		if (dye_fsize(wp, y))
@@ -83,6 +82,16 @@ static inline int dye_mtime(WINDOW *wp, int y)
 	return dye_val(wp, y, _mtime_init_x, max_val_len);
 }
 
+static int print_mtime_buffer(WINDOW *wp, int y, char *buffer)
+{
+	int ret;
+
+	ret = mvwprintw(wp, y, _mtime_init_x, "%s", buffer);
+	free(buffer);
+
+	return (ret == ERR) ? -1 : 0;
+}
+
 static int print_mtime(WINDOW *wp, int y, time_t mtime)
 {
 	char *buffer;
@@ -90,19 +99,14 @@ static int print_mtime(WINDOW *wp, int y, time_t mtime)
 
 	if(!(buffer = get_mtime_str(mtime)))
 		return -1;
-	if (mvwprintw(wp, y, _mtime_init_x, "%s", buffer) == ERR)
-		goto err_free_buf;
+	if (print_mtime_buffer(wp, y, buffer))
+		return -1;
 	if (COLORED_OUTPUT)
 		if (dye_mtime(wp, y))
-			goto err_free_buf;
-	free(buffer);
+			return -1;
 	sep_x = _mtime_init_x + _max_mtime_len + _sep_blank;
 	
 	return print_separator(wp, y, sep_x);
-
-err_free_buf:
-	free(buffer);
-	return -1;
 }
 
 static inline int dye_fname(WINDOW *wp, int y, short cpair)
@@ -115,7 +119,7 @@ static int print_fname(WINDOW *wp, int y, const char *name, char eos, short cpai
 {
 	if (mvwprintw(wp, y, _fname_init_x, "%s%c", name, eos) == ERR)
 		return -1;
-	if (cpair)
+	if (COLORED_OUTPUT)
 		if (dye_fname(wp, y, cpair))
 			return -1;
 	return 0;
@@ -129,8 +133,7 @@ static int print_separators_only(WINDOW *wp, int y)
 	x1 = _fsize_init_x + _max_fsize_len + _sep_blank;
 	x2 = _mtime_init_x + _max_mtime_len + _sep_blank;
 
-	return (print_separator(wp, y, x1) || 
-		print_separator(wp, y, x2)) ? -1 : 0;
+	return (print_separator(wp, y, x1) || print_separator(wp, y, x2)) ? -1 : 0;
 }
 
 static int display_entries_info(WINDOW *wp, const struct dtree *node)
@@ -156,7 +159,6 @@ static int display_entries_info(WINDOW *wp, const struct dtree *node)
 
 static int get_max_practical_y(WINDOW *wp)
 {
-	/* 3 = line that cant be displayed + summary message + border line */
 	const int skipped_lines = 3;
 
 	return (getmaxy(wp) - skipped_lines);
@@ -164,10 +166,9 @@ static int get_max_practical_y(WINDOW *wp)
 
 static bool is_between_page_borders(WINDOW *wp, int current_y)
 {
-	const int max_y = get_max_practical_y(wp);
 	const int min_y = 2;
 
-	return (min_y <= current_y) && (max_y >= current_y);
+	return (min_y <= current_y) && (get_max_practical_y(wp) >= current_y);
 }
 
 int display_entries(WINDOW *wp, const struct dtree *ptr) 
@@ -180,7 +181,7 @@ int display_entries(WINDOW *wp, const struct dtree *ptr)
 	for (current=ptr; current; current=current->next) {
 		if (!is_between_page_borders(wp, current->data->curses->y))
 			break;
-		if ((retval = display_entries_info(wp, current)) == -1)
+		if ((retval = display_entries_info(wp, current)))
 			break;
 	}
 	return retval;
@@ -606,7 +607,22 @@ static int perform_input_operations(WINDOW *wp, int c)
 	if ((key = in_navigation_keys(c))) {
 		if (manage_navigation_input(wp, key))
 			return -1;
+	} else if (c == 10) {
+		if (_highligted_node->child) {
+			werase(wp);
+			nc_initial_display(wp, _highligted_node->child, 
+					   _highligted_node->child->data->file->fpath);
+		}
+	} else if (c == 'c') {
+		;//rm_entry(_highligted_node->data->file);
+	} else if (c == KEY_BACKSPACE) {
+		if (_highligted_node->parent) {
+			werase(wp);
+			nc_initial_display(wp, _highligted_node->parent, 
+					   _highligted_node->parent->data->file->fpath);
+		}
 	}
+
 	return 0;
 }
 
