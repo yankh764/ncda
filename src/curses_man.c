@@ -27,7 +27,6 @@
 /* Constant parameters */
 const int _def_attrs = A_BOLD;
 const int _borders_cpair = CYAN_PAIR;
-const char _separator = '|';
 const int _blank = 1;
 const int _sep_blank = 2 * _blank;
 const int _fsize_init_x = 0;
@@ -35,6 +34,8 @@ const int _mtime_init_x = 12;
 const int _fname_init_x = 27;
 const int _max_fsize_len = 8;
 const int _max_mtime_len = 11;
+const char _separator = '|';
+const char _border = '-';
 
 struct dtree *_highligted_node; 
 
@@ -194,8 +195,7 @@ static int init_color_pairs()
 	        init_pair(YELLOW_PAIR,  COLOR_YELLOW,  -1) == ERR ||
 	        init_pair(CYAN_PAIR,    COLOR_CYAN,    -1) == ERR ||
 	        init_pair(MAGENTA_PAIR, COLOR_MAGENTA, -1) == ERR ||
-		init_pair(RED_PAIR,     COLOR_RED,     -1) == ERR ||
-	        init_pair(DEFAULT_PAIR, -1,            -1) == ERR) ? -1 : 0;
+		init_pair(RED_PAIR,     COLOR_RED,     -1) == ERR) ? -1 : 0;
 }
 
 static int start_ncurses_colors()
@@ -242,7 +242,7 @@ static int display_opening_message(WINDOW *wp)
 	const int begin_x = 0;
 	short cpair;
 
-	cpair = COLORED_OUTPUT ? _borders_cpair : 0;
+	cpair = COLORED_OUTPUT ? _borders_cpair : DEFAULT_PAIR;
 
 	if (mvwprintw(wp, begin_y, begin_x, "%s", message) == ERR)
 		return -1;
@@ -266,33 +266,32 @@ static off_t get_total_disk_usage(const struct dtree *begin)
 	return total;
 }
 
-static int print_usage_summary(WINDOW *wp, int y, int max_x,
-			       const struct dtree *head)
+static int print_usage_summary(WINDOW *wp, int y, int max_x, const struct dtree *begin)
 {
 	const char *message = "Total Disk Usage:";
 	struct size_format format;
 	size_t len;
 
-	format = get_proper_size_format(get_total_disk_usage(head));
+	format = get_proper_size_format(get_total_disk_usage(begin));
 	/* The 1 is because I added another digit after the floating point */
-	len = strlen(message) + _blank + _max_fsize_len + 1;
+	len = strlen(message) + _blank + (_max_fsize_len + 1);
 
 	return (mvwprintw(wp, y, max_x-len, "%s %0.2f %s", 
 			  message, format.val, format.unit) == ERR) ? -1 : 0;
 }
 
 static int summary_message(WINDOW *wp, int y, int x,
-			   const struct dtree *head, 
+			   const struct dtree *begin, 
 			   const char *path)
 {
 	const int begin_x = 1;
 
 	return (print_path_summary(wp, y, begin_x, path) || 
-		print_usage_summary(wp, y, x, head)) ? -1 : 0;
+		print_usage_summary(wp, y, x, begin)) ? -1 : 0;
 }
 
 static int display_summary_message(WINDOW *wp, 
-		   		   const struct dtree *head, 
+		   		   const struct dtree *begin, 
 				   const char *current_path)
 {
 	const int attrs = A_REVERSE | A_BOLD;
@@ -300,10 +299,10 @@ static int display_summary_message(WINDOW *wp,
 	int max_y, max_x;
 	short cpair;
 
-	cpair = COLORED_OUTPUT ? _borders_cpair : 0;
+	cpair = COLORED_OUTPUT ? _borders_cpair : DEFAULT_PAIR;
 	getmaxyx(wp, max_y, max_x);
-
-	if (summary_message(wp, --max_y, --max_x, head, current_path))
+	/* I decreased max_y and max_x because strangely they can't be displayed */
+	if (summary_message(wp, --max_y, --max_x, begin, current_path))
 		return -1;
 	else 
 		return (mvwchgat(wp, max_y, begin_x, 
@@ -342,11 +341,10 @@ static int display_labels(WINDOW *wp)
 	return print_separators_only(wp, y);
 }
 
-static int create_borders(WINDOW *wp)
+static int print_borders(WINDOW *wp)
 {
 	/* 2 = line that cant be displayed + summary message */
 	const int skipped_lines = 2;
-	const char border = '-';
 	const int begin_y = 1;
 	const int begin_x = 0;
 	int max_x, max_y;
@@ -354,8 +352,8 @@ static int create_borders(WINDOW *wp)
 	getmaxyx(wp, max_y, max_x);
 	max_y -= skipped_lines;
 
-	return (mvwhline(wp, begin_y, begin_x, border, max_x) == ERR || 
-		mvwhline(wp, max_y, begin_x, border, max_x) == ERR) ? -1 : 0;
+	return (mvwhline(wp, begin_y, begin_x, _border, max_x) == ERR || 
+		mvwhline(wp, max_y, begin_x, _border, max_x) == ERR) ? -1 : 0;
 }
 
 static inline int restore_entry_colors(WINDOW *wp, int y, short cpair)
@@ -371,7 +369,7 @@ static int restore_prev_entry_design(WINDOW *wp)
 	const int y = _highligted_node->prev->data->curses->y;
 	const int begin_x = 0;
 	
-	if (mvwchgat(wp, y, begin_x, EOL, _def_attrs, 0, NULL) == ERR)
+	if (mvwchgat(wp, y, begin_x, EOL, _def_attrs, DEFAULT_PAIR, NULL) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
 		return restore_entry_colors(wp, y, cpair);
@@ -385,7 +383,7 @@ static int restore_next_entry_design(WINDOW *wp)
 	const int y = _highligted_node->next->data->curses->y;
 	const int begin_x = 0;
 	
-	if (mvwchgat(wp, y, begin_x, EOL, _def_attrs, 0, NULL) == ERR)
+	if (mvwchgat(wp, y, begin_x, EOL, _def_attrs, DEFAULT_PAIR, NULL) == ERR)
 		return -1;
 	if (COLORED_OUTPUT)
 		return restore_entry_colors(wp, y, cpair);
@@ -397,19 +395,17 @@ static inline int restore_entry_design(WINDOW *wp, int key)
 {
 	if (key == KEY_DOWN)
 		return restore_prev_entry_design(wp);
-	else if (key == KEY_UP)
+	else
 		return restore_next_entry_design(wp);
-	else	
-		return 0;
 }
 
-static inline int update_highlight_loc(WINDOW *wp, int key)
+static int update_highlight_loc(WINDOW *wp, int key)
 {
 	const int y = _highligted_node->data->curses->y;
 	const int attrs = _def_attrs | A_REVERSE;
 	const int begin_x = 0;
 
-	if (mvwchgat(wp, y, begin_x, EOL, attrs, 0, NULL) == ERR)
+	if (mvwchgat(wp, y, begin_x, EOL, attrs, DEFAULT_PAIR, NULL) == ERR)
 		return -1;
 	if (restore_entry_design(wp, key))
 		return -1;
@@ -417,11 +413,11 @@ static inline int update_highlight_loc(WINDOW *wp, int key)
 		return (wrefresh(wp) == ERR) ? -1 : 0;
 }
 
-static int init_highlight(WINDOW *wp, const struct dtree *head)
+static int init_highlight(WINDOW *wp, struct dtree *begin)
 {
 	const char null = '\0';
 
-	_highligted_node = (struct dtree *) head;
+	_highligted_node = begin;
 	
 	return update_highlight_loc(wp, null);
 }
@@ -429,14 +425,12 @@ static int init_highlight(WINDOW *wp, const struct dtree *head)
 /*
  * The initial display for each window
  */
-int nc_initial_display(WINDOW *wp, 
-		       const struct dtree *head,
-		       const char *current_path)
+int nc_initial_display(WINDOW *wp, struct dtree *begin, const char *current_path)
 {
-	return (display_opening_message(wp) || create_borders(wp) ||
-		display_labels(wp) || display_entries(wp, head) || 
-		display_summary_message(wp, head, current_path) ||
-		init_highlight(wp, head)) ? -1 : 0;
+	return (display_opening_message(wp) || print_borders(wp) ||
+		display_labels(wp) || display_entries(wp, begin) || 
+		display_summary_message(wp, begin, current_path) ||
+		init_highlight(wp, begin)) ? -1 : 0;
 }
 
 static int del_and_null_win(WINDOW **wp)
@@ -462,16 +456,16 @@ WINDOW *nc_newwin(int lines_num, int cols_num, int begin_y, int begin_x)
 	return wp;
 }
 
-/*
- * Check if c is in the navigation keys, and return the value of the 
- * operation that this key does
- */
 static int in_navigation_keys(int c)
 {
 	if (c == KEY_UP || c == 'k')
 		return KEY_UP;
 	else if (c == KEY_DOWN || c == 'j')
 		return KEY_DOWN;
+	else if (c == KEY_ENTER || c == KEY_RIGHT || c == 'l' || c == '\n')
+		return KEY_ENTER;
+	else if (c == KEY_BACKSPACE || c == KEY_LEFT || c == 'h')
+		return KEY_BACKSPACE;
 	else 
 		return 0;
 }
@@ -484,18 +478,24 @@ static inline struct dtree *change_highlighted_node(int key)
 		retval =_highligted_node = _highligted_node->next;
 	else if (key == KEY_UP && _highligted_node->prev)
 		retval = _highligted_node = _highligted_node->prev;
+	else if (key == KEY_ENTER && _highligted_node->child)
+		retval = _highligted_node = _highligted_node->child;
 	else 
 		retval = NULL;
 	
 	return retval;
 }
 
+/*
+ * Returns the address of the node with the minumum y that can be displayed 
+ */
 static struct dtree *decrease_prev_y()
 {
-	const int min_y = 2;
 	struct dtree *current, *retval;
+	const int min_y = 2;
 
 	retval = NULL;
+
 	for (current=_highligted_node->prev; current; current=current->prev) {
 		current->data->curses->y -= 1;
 		
@@ -505,7 +505,7 @@ static struct dtree *decrease_prev_y()
 	return retval;
 }
 
-static void decrease_next_y()
+static inline void decrease_next_y()
 {
 	struct dtree *current;
 
@@ -518,17 +518,14 @@ static void decrease_next_y()
  */
 static struct dtree *decrease_nodes_y()
 {
-	struct dtree *retval;
-
 	/* Decrease the currently highlighted node's y*/
 	_highligted_node->data->curses->y -= 1;
-	retval = decrease_prev_y();
 	decrease_next_y();
 
-	return retval;
+	return decrease_prev_y();
 }
 
-static void increase_prev_y()
+static inline void increase_prev_y()
 {
 	struct dtree *current;
 
@@ -536,7 +533,7 @@ static void increase_prev_y()
 		current->data->curses->y += 1;
 }
 
-static void increase_next_y()
+static inline void increase_next_y()
 {
 	struct dtree *current;
 
@@ -549,15 +546,12 @@ static void increase_next_y()
  */
 static struct dtree *increase_nodes_y()
 {
-	struct dtree *retval;
-
 	/* Increase the currently highlighted node's y*/
 	_highligted_node->data->curses->y += 1;
-	retval = _highligted_node;
 	increase_prev_y();
 	increase_next_y();
 
-	return retval;
+	return _highligted_node;;
 }
 
 static inline struct dtree *correct_nodes_y(int key)
@@ -568,36 +562,55 @@ static inline struct dtree *correct_nodes_y(int key)
 		return increase_nodes_y();
 }
 
-static int clear_display(WINDOW *wp)
+static int clear_displayed_entries(WINDOW *wp)
 {
 	const char blank = ' ';
 	const int begin_x = 0;
 	const int begin_y = 2;
-	int y, max_y, max_x, retval;
+	int y, retval;
 	
 	retval = 0;
-	max_y = get_max_practical_y(wp);
-	max_x = getmaxx(wp);
 
-	for (y=begin_y; y<=max_y; y++)
-		if ((retval = mvwhline(wp, y, begin_x , blank, max_x)) == ERR)
+	for (y=begin_y; y<=get_max_practical_y(wp); y++)
+		if ((retval = mvwhline(wp, y, begin_x , blank, getmaxx(wp))) == ERR)
 			break;
 	return retval;
 }
 
-static int manage_navigation_input(WINDOW *wp, int key)
+static inline bool is_y_coordinate_navigation(int key) 
+{
+	return (key == KEY_UP || key == KEY_DOWN);
+}
+
+static int manage_y_navigation(WINDOW *wp, int key)
 {
 	struct dtree *beginning;
 
-	if (!change_highlighted_node(key))
-		return 0;
 	if (!is_between_page_borders(wp, _highligted_node->data->curses->y)) {
 		beginning = correct_nodes_y(key);
 		
-		if (clear_display(wp) || display_entries(wp, beginning))
+		if (clear_displayed_entries(wp) || display_entries(wp, beginning))
 			return -1;
 	}
 	return update_highlight_loc(wp, key);
+}
+
+static int manage_dir_navigation(WINDOW *wp, int key)
+{
+	const char *path = _highligted_node->data->file->fpath;
+	
+	return (werase(wp) == ERR || 
+		nc_initial_display(wp, _highligted_node, path)) ? -1 : 0;
+}
+
+static inline int manage_navigation_input(WINDOW *wp, int key)
+{
+	if (!change_highlighted_node(key))
+		return 0;
+	if (is_y_coordinate_navigation(key))
+		return manage_y_navigation(wp,  key);
+	else
+		return manage_dir_navigation(wp, key);
 }
 
 static int perform_input_operations(WINDOW *wp, int c)
@@ -607,20 +620,8 @@ static int perform_input_operations(WINDOW *wp, int c)
 	if ((key = in_navigation_keys(c))) {
 		if (manage_navigation_input(wp, key))
 			return -1;
-	} else if (c == 10) {
-		if (_highligted_node->child) {
-			werase(wp);
-			nc_initial_display(wp, _highligted_node->child, 
-					   _highligted_node->child->data->file->fpath);
-		}
 	} else if (c == 'c') {
 		;//rm_entry(_highligted_node->data->file);
-	} else if (c == KEY_BACKSPACE) {
-		if (_highligted_node->parent) {
-			werase(wp);
-			nc_initial_display(wp, _highligted_node->parent, 
-					   _highligted_node->parent->data->file->fpath);
-		}
 	}
 
 	return 0;
