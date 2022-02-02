@@ -100,7 +100,7 @@ static char *_mtime_str(unsigned int num, char *period)
 	size = sizeof(num) + strlen(period) + 2;
 	
 	if ((retval = malloc_inf(size)))
-		snprintf(retval, size, "%d %s", num, period);
+		snprintf(retval, size, "%2d %s", num, period);
 	return retval;
 }
 
