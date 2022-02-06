@@ -178,3 +178,20 @@ char *get_mtime_str(time_t mtime)
 	else
 		return NULL;
 }
+
+/*
+ * Extract directory's path from the first entry path (dot_entry)
+ */
+char *extract_dir_path(const char *dot_entry_path)
+{
+	size_t len;
+	char *path;
+
+	len = strlen(dot_entry_path) - 1;
+
+	if ((path = malloc_inf(len))) {
+		memcpy(path, dot_entry_path, len);
+		path[--len] = '\0';
+	}
+	return path;
+} 
