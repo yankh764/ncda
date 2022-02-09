@@ -452,3 +452,13 @@ void correct_dtree_st_size(struct dtree *begin)
 			current->data->file->fstatus->st_size = get_acc_dir_size(current);	
 	}
 }
+
+off_t get_disk_usage(const struct dtree *begin)
+{
+	const struct dtree *current;
+	off_t total;
+
+	for (current=begin, total=0; current; current=current->next)
+		total += current->data->file->fstatus->st_size;
+	return total;
+} 

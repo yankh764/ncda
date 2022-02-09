@@ -16,5 +16,6 @@ enum COLOR_PAIRS {
 struct dtree *get_dir_tree(const char *);
 int rm_entry(const struct fdata *);
 void correct_dtree_st_size(struct dtree *);
+off_t get_disk_usage(const struct dtree *);
 
 #endif

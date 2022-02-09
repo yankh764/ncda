@@ -264,16 +264,6 @@ static int print_path_summary(WINDOW *wp, int y, int x, const char *path)
 	return (mvwprintw(wp, y, x, "Path: %s", path) == ERR) ? -1 : 0;
 }
 
-static off_t get_disk_usage(const struct dtree *begin)
-{
-	const struct dtree *current;
-	off_t total;
-
-	for (current=begin, total=0; current; current=current->next)
-		total += current->data->file->fstatus->st_size;
-	return total;
-}
-
 static inline int print_usage(WINDOW *wp, int y, int x, 
 			      const char *message, 
 			      struct size_format fmt)
@@ -425,7 +415,7 @@ static inline int restore_entry_design(WINDOW *wp, int key)
 /*
  * Manage highlight operation
  */
-static int manage_highlight_op(WINDOW *wp, int key)
+static int man_highlight_operation(WINDOW *wp, int key)
 {
 	const int y = _highligted_node->data->curses->y;
 	const int begin_x = 0;
@@ -490,20 +480,6 @@ WINDOW *nc_newwin(int lines_num, int cols_num, int begin_y, int begin_x)
 	return wp;
 }
 
-static int in_navigation_keys(int c)
-{
-	if (c == KEY_UP || c == 'k')
-		return KEY_UP;
-	else if (c == KEY_DOWN || c == 'j')
-		return KEY_DOWN;
-	else if (c == KEY_ENTER || c == KEY_RIGHT || c == 'l' || c == '\n')
-		return KEY_ENTER;
-	else if (c == KEY_BACKSPACE || c == KEY_LEFT || c == 'h' || c == '\b')
-		return KEY_BACKSPACE;
-	else 
-		return 0;
-}
-
 static struct dtree *get_parent(struct dtree *ptr)
 {
 	struct dtree *current, *node; 
@@ -513,23 +489,6 @@ static struct dtree *get_parent(struct dtree *ptr)
 	for (current=ptr; current; current=current->prev)
 		node = current;
 	return node->parent;
-}
-
-static struct dtree *change_highlighted_node(int key)
-{
-	struct dtree *retval, *parent;
-
-	if (key == KEY_DOWN && _highligted_node->next)
-		retval =_highligted_node = _highligted_node->next;
-	else if (key == KEY_UP && _highligted_node->prev)
-		retval = _highligted_node = _highligted_node->prev;
-	else if (key == KEY_ENTER && _highligted_node->child)
-		retval = _highligted_node = _highligted_node->child;
-	else if (key == KEY_BACKSPACE && (parent = get_parent(_highligted_node)))
-		retval = _highligted_node = parent;
-	else 
-		retval = NULL;
-	return retval;
 }
 
 /*
@@ -599,14 +558,6 @@ static struct dtree *increase_nodes_y()
 	return _highligted_node;;
 }
 
-static inline struct dtree *correct_nodes_y(int key)
-{
-	if (key == KEY_DOWN)
-		return decrease_nodes_y();
-	else
-		return increase_nodes_y();
-}
-
 static int clear_displayed_entries(WINDOW *wp)
 {
 	const char blank = ' ';
@@ -621,24 +572,6 @@ static int clear_displayed_entries(WINDOW *wp)
 	return retval;
 }
 
-static inline bool is_y_coordinate_navigation(int key) 
-{
-	return (key == KEY_UP || key == KEY_DOWN);
-}
-
-static int manage_y_navigation(WINDOW *wp, int key)
-{
-	struct dtree *new_begin;
-
-	if (!is_between_page_borders(wp, _highligted_node->data->curses->y)) {
-		new_begin = correct_nodes_y(key);
-		
-		if (clear_displayed_entries(wp) || display_entries(wp, new_begin))
-			return -1;
-	}
-	return manage_highlight_op(wp, key);
-}
-
 /*
  * Get the entry with the minimum displayed y i.e 2
  */
@@ -646,13 +579,14 @@ static struct dtree *get_first_displayed_entry(struct dtree *ptr)
 {
 	struct dtree *current;
 
-	for (current=ptr; current->data->curses->y!=_min_y; current=current->prev)
-		;
+	for (current=ptr; current; current=current->prev)
+		if (current->data->curses->y == _min_y)
+			break;
 	return current;
 }
 
 static inline int recreate_prev_display(WINDOW *wp, 
-				 	struct dtree *first_entry, 
+				 	const struct dtree *first_entry, 
 				 	const char *path)
 {
 	return (display_opening_message(wp) || print_borders(wp) ||
@@ -661,57 +595,139 @@ static inline int recreate_prev_display(WINDOW *wp,
 		highlight_entry(wp, _highligted_node)) ? -1 : 0;
 }
 
-static int _manage_dir_navigation(WINDOW *wp, int key, 
-				  struct dtree *entry, 
-				  const char *entry_path)
+static inline bool is_available_node(const struct dtree *node)
 {
-	if (werase(wp) == ERR)
-		return -1;
-	if (key == KEY_BACKSPACE)
-		return recreate_prev_display(wp, entry, entry_path);
-	else
-		return nc_initial_display(wp, entry, entry_path);
+	return node ? 1 : 0;
 }
 
-static int manage_dir_navigation(WINDOW *wp, int key)
+static int _navigate_upward(WINDOW *wp)
 {
-	struct dtree *first_entry;
-	char *dot_path, *path;
+	struct dtree *begin;
+	
+	begin = _highligted_node = _highligted_node->prev;
+
+	if (!is_between_page_borders(wp, _highligted_node->data->curses->y)) {
+		begin = increase_nodes_y();
+		
+		if (clear_displayed_entries(wp) || display_entries(wp, begin))
+			return -1;
+	}
+	return man_highlight_operation(wp, KEY_UP);
+}
+
+static int navigate_upward(WINDOW *wp)
+{
 	int retval;
 
-	first_entry = get_first_displayed_entry(_highligted_node);
-	dot_path = first_entry->data->file->fpath;
-	retval = -1;
-	
-	if ((path = extract_dir_path(dot_path))) {
-		retval = _manage_dir_navigation(wp, key, first_entry, path);
-		free(path);
-	} 
-	return retval; 
+	if ((retval = is_available_node(_highligted_node->prev)))
+		retval = _navigate_upward(wp);
+	return retval;
 }
 
-static inline int manage_navigation_input(WINDOW *wp, int key)
+static int _navigate_downward(WINDOW *wp)
 {
-	if (!change_highlighted_node(key))
+	struct dtree *begin;
+	
+	begin = _highligted_node = _highligted_node->next;
+
+	if (!is_between_page_borders(wp, _highligted_node->data->curses->y)) {
+		begin = decrease_nodes_y();
+		
+		if (clear_displayed_entries(wp) || display_entries(wp, begin))
+			return -1;
+	}
+	return man_highlight_operation(wp, KEY_DOWN);
+}
+
+static int navigate_downward(WINDOW *wp)
+{
+	int retval;
+
+	if ((retval = is_available_node(_highligted_node->next)))
+		retval = _navigate_downward(wp);
+	return retval;
+}
+
+static int _navigate_outward(WINDOW *wp)
+{
+	struct dtree *begin;
+	char *path;
+	int retval;
+
+	begin = _highligted_node = get_parent(_highligted_node);
+
+	if (begin->data->curses->y != _min_y)
+		begin = get_first_displayed_entry(_highligted_node);
+	if (werase(wp) == ERR)
+		return -1;
+	if (!(path = extract_dir_path(begin->data->file->fpath)))
+		return -1;
+		
+	retval = recreate_prev_display(wp, begin, path);
+	free(path);
+
+	return retval;
+}
+
+static int navigate_outward(WINDOW *wp)
+{
+	int retval;
+
+	if ((retval = is_available_node(get_parent(_highligted_node))))
+		retval = _navigate_outward(wp);
+	return retval;
+}
+
+static int _navigate_inward(WINDOW *wp)
+{
+	char *path;
+	int retval;
+
+	_highligted_node = _highligted_node->child;
+
+	if (werase(wp) == ERR)
+		return -1; 
+	if (!(path = extract_dir_path(_highligted_node->data->file->fpath)))
+		return -1;
+
+	retval = nc_initial_display(wp, _highligted_node, path);
+	free(path);
+
+	return retval;
+}
+
+static int navigate_inward(WINDOW *wp)
+{
+	int retval;
+
+	if ((retval = is_available_node(_highligted_node->child)))
+		retval = _navigate_inward(wp);
+	return retval;
+}
+
+static int perform_navigation(WINDOW *wp, int c)
+{
+	if (c == KEY_UP || c == 'k')
+		return navigate_upward(wp);
+	else if (c == KEY_DOWN || c == 'j')
+		return navigate_downward(wp);
+	else if (c == KEY_ENTER || c == KEY_RIGHT || c == 'l' || c == '\n')
+		return navigate_inward(wp);
+	else if (c == KEY_BACKSPACE || c == KEY_LEFT || c == 'h' || c == '\b')
+		return navigate_outward(wp);
+	else 
 		return 0;
-	if (is_y_coordinate_navigation(key))
-		return manage_y_navigation(wp,  key);
-	else
-		return manage_dir_navigation(wp, key);
 }
 
 static int perform_input_operations(WINDOW *wp, int c)
 {
-	int key;
-
-	if ((key = in_navigation_keys(c))) {
-		if (manage_navigation_input(wp, key))
-			return -1;
-	} else if (c == 'c') {
-		;//rm_entry(_highligted_node->data->file);
+	if (c == 'c') {
+		return 0;//rm_entry(_highligted_node->data->file);
+	} else if (c == 'q'){
+		return 1;
+	} else {
+		return perform_navigation(wp, c);
 	}
-
-	return 0;
 }
 
 int nc_man_input(WINDOW *wp)
@@ -719,15 +735,9 @@ int nc_man_input(WINDOW *wp)
 	int c;
 
 	while ((c = wgetch(wp)) != ERR) {
-		switch (c) {
-		case 'q':
-			return 0;
-		default:
-			if (perform_input_operations(wp, c))
-				return -1;
-			break;
-		}
+		if (perform_input_operations(wp, c))
+			return -1;
 	}
-	return c;
+	return 0;
 }
 

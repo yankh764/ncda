@@ -187,8 +187,10 @@ char *extract_dir_path(const char *dot_entry_path)
 	size_t len;
 	char *path;
 
-	len = strlen(dot_entry_path) - 1;
-
+	len = strlen(dot_entry_path);
+	
+	if (len > 2)
+		len--;
 	if ((path = malloc_inf(len))) {
 		memcpy(path, dot_entry_path, len);
 		path[--len] = '\0';
