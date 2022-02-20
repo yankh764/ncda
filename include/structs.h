@@ -8,6 +8,7 @@
 struct fdata {
         char *fname;
         char *fpath;
+	off_t fsize;
         struct stat *fstatus;
 };
 

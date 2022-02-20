@@ -99,6 +99,13 @@ static void free_and_null_dtree(struct dtree **begin)
 	*begin = NULL;
 }
 
+static inline off_t get_entry_size(blkcnt_t blk_num) 
+{
+	const int blk_size = 512;
+
+	return blk_num * blk_size;
+}
+
 static int insert_fdata_fields(struct fdata *ptr, 
 			       const char *entry_name, size_t nlen, 
 			       const char *entry_path, size_t plen)
@@ -108,6 +115,7 @@ static int insert_fdata_fields(struct fdata *ptr,
 	if (!(retval = lstat_inf(entry_path, ptr->fstatus))) {
 		memcpy(ptr->fname, entry_name, nlen);
 		memcpy(ptr->fpath, entry_path, plen);
+		ptr->fsize = get_entry_size(ptr->fstatus->st_blocks);
 	}
 	return retval;
 }
@@ -315,7 +323,7 @@ static int rmdir_custom_fail(const char *path)
 	return retval;
 }
 
-static int delete_entry_use_lstat(const char *entry_path)
+static int _delete_entry(const char *entry_path)
 {
 	struct stat statbuf;
 
@@ -324,36 +332,17 @@ static int delete_entry_use_lstat(const char *entry_path)
 	 if (S_ISDIR(statbuf.st_mode))
 		return rm_dir_r(entry_path);
 	 else
-		 return unlink_custom_fail(entry_path);
-}
-
-static inline int delete_entry_use_d_type(const char *entry_path, 
-					  unsigned char d_type)
-{
-	if (d_type == DT_DIR)
-		return rm_dir_r(entry_path);
-	else
 		return unlink_custom_fail(entry_path);
 }
 
-static inline int _delete_entry(const char *entry_path, unsigned char d_type)
-{
-	if (d_type == DT_UNKNOWN)
-		return delete_entry_use_lstat(entry_path);
-	else
-		return delete_entry_use_d_type(entry_path, d_type);
-}
-
-static int delete_entry(const char *dir_path, 
-		        const char *entry_name, 
-			unsigned char d_type)
+static int delete_entry(const char *dir_path, const char *entry_name)
 {
 	char *entry_path;	
 	int retval;
 	
 	retval = -1;
 	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		retval = _delete_entry(entry_path, d_type);
+		retval = _delete_entry(entry_path);
 		free(entry_path);
 	}
 	return retval;
@@ -366,7 +355,7 @@ static int _rm_dir_r(DIR *dp, const char *path)
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
-		if (delete_entry(path, entry->d_name, entry->d_type))
+		if (delete_entry(path, entry->d_name))
 			return -1;
 	}
 	return ERROR ? -1 : 0;
@@ -411,6 +400,7 @@ static inline bool is_zero_sized(off_t size)
 
 static inline bool is_relevant_dir_entry(const struct stat *statbuf)
 {
+ 	/* Virtual files like the ones in /proc are zero sized */
 	return S_ISDIR(statbuf->st_mode) && !is_zero_sized(statbuf->st_size);
 }
 
@@ -426,12 +416,11 @@ static off_t get_acc_dir_size(struct dtree *dir_ptr)
 	first_entry = dir_ptr->child;
 
 	for (current=first_entry, total=0; current; current=current->next) {
-		/* Zero size dot entries so they won't be relevant */
 		if (is_dot_entry(current->data->file->fname))
-			current->data->file->fstatus->st_size = 0;
+			continue;
 		else if (is_relevant_dir_entry(current->data->file->fstatus))
-			current->data->file->fstatus->st_size = get_acc_dir_size(current);
-		total += current->data->file->fstatus->st_size;
+			current->data->file->fsize = get_acc_dir_size(current);
+		total += current->data->file->fsize;
 	}
 	return total;
 }
@@ -440,25 +429,29 @@ static off_t get_acc_dir_size(struct dtree *dir_ptr)
  * Correct the st_size fields for the directories since it represents 
  * only the entry size and not with the actual directory's content size.
  */
-void correct_dtree_st_size(struct dtree *begin)
+void correct_dtree_fsize(struct dtree *begin)
 {
 	struct dtree *current;
 
 	for (current=begin; current; current=current->next) {
-		/* Zero dot entries' size so they won't be relevant */
 		if (is_dot_entry(current->data->file->fname))
-			current->data->file->fstatus->st_size = 0;
+			continue;
 		else if (is_relevant_dir_entry(current->data->file->fstatus))
-			current->data->file->fstatus->st_size = get_acc_dir_size(current);	
+			current->data->file->fsize = get_acc_dir_size(current);	
 	}
 }
 
-off_t get_disk_usage(const struct dtree *begin)
+/*
+ * This function should be called only after calling correct_dtree_st_size() 
+ * on the dtree struct 
+ */
+off_t get_dtree_disk_usage(const struct dtree *begin)
 {
 	const struct dtree *current;
 	off_t total;
 
 	for (current=begin, total=0; current; current=current->next)
-		total += current->data->file->fstatus->st_size;
+		if (!is_dot_entry(current->data->file->fname))
+			total += current->data->file->fsize;
 	return total;
 } 

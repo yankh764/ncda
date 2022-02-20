@@ -7,12 +7,6 @@
 ---------------------------------------------------------
 */
 
-/*
- * Defining _GNU_SOURCE macro since it achives all the desired
- * feature test macro requirements, which are:
- *     1) _DEFAULT_SOURCE || _BSD_SOURCE for file type and mode macros
- */
-#define _GNU_SOURCE
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -143,14 +137,14 @@ static int print_separators_only(WINDOW *wp, int y)
 static int display_entries_info(WINDOW *wp, const struct dtree *node)
 {
 	const time_t mtime = node->data->file->fstatus->st_mtim.tv_sec;
-	const off_t fsize = node->data->file->fstatus->st_size;
+	const off_t size = node->data->file->fsize;
 	const short color_pair = node->data->curses->cpair;
 	const char *const name = node->data->file->fname;
 	const char eos = node->data->curses->eos;
 	const int y = node->data->curses->y;
 	
 	if (!is_dot_entry(name)) {
-		if (print_fsize(wp, y, fsize))
+		if (print_fsize(wp, y, size))
 			return -1;
 		if (print_mtime(wp, y, mtime))
 			return -1;
@@ -278,7 +272,7 @@ static int print_usage_summary(WINDOW *wp, int y, int max_x, const struct dtree 
 	struct size_format format;
 	size_t len;
 
-	format = get_proper_size_format(get_disk_usage(begin));
+	format = get_proper_size_format(get_dtree_disk_usage(begin));
 	/* The 1 is because I added another digit after the floating point */
 	len = strlen(message) + _blank + (_max_fsize_len + 1);
 
