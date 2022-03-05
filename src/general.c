@@ -81,7 +81,7 @@ struct size_format get_proper_size_format(off_t bytes)
 		return proper_size_format(bytes, "B");
 }
 
-static inline void remove_plural_s(char *str)
+static void remove_plural_s(char *str)
 {
 	size_t len;
 
@@ -96,8 +96,7 @@ static char *_mtime_str(unsigned int num, char *period)
 
 	if (num == 1)
 		remove_plural_s(period);
-	/* 2 = space + null byte */
-	size = sizeof(num) + strlen(period) + 2;
+	size = sizeof(num) + strlen(period) + sizeof(' ') + 1;
 	
 	if ((retval = malloc_inf(size)))
 		snprintf(retval, size, "%2d %s", num, period);
@@ -145,7 +144,7 @@ static inline char *mtime_str_day(unsigned int num)
 
 	return _mtime_str(num, period);
 }
-
+ 
 static char *mtime_str(time_t difference)
 {
 	const time_t sec_in_day = 60 * 60 * 24;
@@ -181,7 +180,7 @@ char *get_mtime_str(time_t mtime)
 
 /*
  * Extract directory's path from the first entry path (dot_entry)
- */
+ *
 char *extract_dir_path(const char *dot_entry_path)
 {
 	size_t len;
@@ -197,3 +196,4 @@ char *extract_dir_path(const char *dot_entry_path)
 	}
 	return path;
 } 
+*/

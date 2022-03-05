@@ -51,14 +51,14 @@ static int rm_dir_r(const char *);
  */
 static char *get_entry_path_slash(const char *entry_name)
 {
+	char slash = '/';
 	char *entry_path;
 	size_t len;
 
-	/* 2 = the slash + null byte */
-	len = strlen(entry_name) + 2;
+	len = strlen(entry_name) + sizeof(slash) + 1;
 
 	if ((entry_path = malloc_inf(len)))
-		snprintf(entry_path, len, "/%s", entry_name);
+		snprintf(entry_path, len, "%c%s", slash, entry_name);
 	return entry_path;
 }
 
@@ -70,13 +70,13 @@ static char *get_entry_path_not_slash(const char *dir_path,
 				      const char *entry_name)
 {
 	char *entry_path;
-        size_t len;
-	
-	/* 2 = the slash + null byte */
-	len = strlen(dir_path) + strlen(entry_name) + 2;
+        char slash = '/';
+	size_t len;
+
+	len = strlen(dir_path) + strlen(entry_name) + sizeof(slash) + 1;
         
 	if ((entry_path = malloc_inf(len)))
-                snprintf(entry_path, len, "%s/%s", dir_path, entry_name);
+                snprintf(entry_path, len, "%s%c%s", dir_path, slash, entry_name);
 	return entry_path;
 }
 
@@ -85,7 +85,7 @@ static inline bool is_slash(const char *dir_path)
 	return (strcmp(dir_path, "/") == 0);
 }
 
-static inline char *get_entry_path(const char *dir_path, const char *entry_name)
+static char *get_entry_path(const char *dir_path, const char *entry_name)
 {
         if (is_slash(dir_path))
 		return get_entry_path_slash(entry_name);
@@ -99,7 +99,7 @@ static void free_and_null_dtree(struct dtree **begin)
 	*begin = NULL;
 }
 
-static inline off_t get_entry_size(blkcnt_t blk_num) 
+static inline off_t entry_size(blkcnt_t blk_num) 
 {
 	const int blk_size = 512;
 
@@ -115,7 +115,7 @@ static int insert_fdata_fields(struct fdata *ptr,
 	if (!(retval = lstat_inf(entry_path, ptr->fstatus))) {
 		memcpy(ptr->fname, entry_name, nlen);
 		memcpy(ptr->fpath, entry_path, plen);
-		ptr->fsize = get_entry_size(ptr->fstatus->st_blocks);
+		ptr->fsize = entry_size(ptr->fstatus->st_blocks);
 	}
 	return retval;
 }
@@ -150,8 +150,8 @@ static inline void insert_cdata_fields(struct entry_data *ptr, int node_i)
 {
 	const int init_displayed_y = 2;
 
-	ptr->curses->cpair = proper_cpair(ptr->file->fstatus->st_mode);
 	ptr->curses->y = init_displayed_y + node_i;
+	ptr->curses->cpair = proper_cpair(ptr->file->fstatus->st_mode);
 	ptr->curses->eos = proper_eos(ptr->file->fstatus->st_mode);
 }
 
@@ -328,7 +328,7 @@ static int _delete_entry(const char *entry_path)
 	struct stat statbuf;
 
 	 if (lstat_custom_fail(entry_path, &statbuf))
-		 return -1;
+		return -1;
 	 if (S_ISDIR(statbuf.st_mode))
 		return rm_dir_r(entry_path);
 	 else
@@ -348,7 +348,10 @@ static int delete_entry(const char *dir_path, const char *entry_name)
 	return retval;
 }
 
-static int _rm_dir_r(DIR *dp, const char *path)
+/*
+ * Remove directory's content recursievly
+ */
+static int rm_dir_content(DIR *dp, const char *path)
 {
 	struct dirent *entry;
 	
@@ -372,7 +375,7 @@ static int rm_dir_r(const char *path)
 	retval = -1;
 
 	if ((dp = opendir_inf(path))) {
-		retval = _rm_dir_r(dp, path);
+		retval = rm_dir_content(dp, path);
 		
 		if (closedir_inf(dp))
 			retval = -1;
@@ -398,10 +401,12 @@ static inline bool is_zero_sized(off_t size)
 	return size == 0;
 }
 
-static inline bool is_relevant_dir_entry(const struct stat *statbuf)
+static inline bool is_relevant_dir_entry(const struct fdata *file)
 {
  	/* Virtual files like the ones in /proc are zero sized */
-	return S_ISDIR(statbuf->st_mode) && !is_zero_sized(statbuf->st_size);
+	return (S_ISDIR(file->fstatus->st_mode) && 
+		!is_dot_entry(file->fname) &&
+		!is_zero_sized(file->fstatus->st_size));
 }
 
 /*
@@ -416,9 +421,7 @@ static off_t get_acc_dir_size(struct dtree *dir_ptr)
 	first_entry = dir_ptr->child;
 
 	for (current=first_entry, total=0; current; current=current->next) {
-		if (is_dot_entry(current->data->file->fname))
-			continue;
-		else if (is_relevant_dir_entry(current->data->file->fstatus))
+		if (is_relevant_dir_entry(current->data->file))
 			current->data->file->fsize = get_acc_dir_size(current);
 		total += current->data->file->fsize;
 	}
@@ -426,19 +429,16 @@ static off_t get_acc_dir_size(struct dtree *dir_ptr)
 }
 
 /*
- * Correct the st_size fields for the directories since it represents 
- * only the entry size and not with the actual directory's content size.
+ * Correct the actual directories' size since it actually 
+ * represents only the number of bytes the entry itself is taking.
  */
-void correct_dtree_fsize(struct dtree *begin)
+void correct_dirs_fsize(struct dtree *begin)
 {
 	struct dtree *current;
 
-	for (current=begin; current; current=current->next) {
-		if (is_dot_entry(current->data->file->fname))
-			continue;
-		else if (is_relevant_dir_entry(current->data->file->fstatus))
+	for (current=begin; current; current=current->next)
+		if (is_relevant_dir_entry(current->data->file))
 			current->data->file->fsize = get_acc_dir_size(current);	
-	}
 }
 
 /*

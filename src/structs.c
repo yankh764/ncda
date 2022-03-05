@@ -112,6 +112,7 @@ void free_dtree(struct dtree *node)
 
 		if (current->child)
 			free_dtree(current->child);
+			
 		free_entry_data(current->data);
 		free(current);
 	}
