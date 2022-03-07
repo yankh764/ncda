@@ -155,9 +155,9 @@ static inline void insert_cdata_fields(struct entry_data *ptr, int node_i)
 	ptr->curses->eos = proper_eos(ptr->file->fstatus->st_mode);
 }
 
-static struct dtree *_get_entry_info(const char *entry_name, 
-				     const char *entry_path,
-				     int node_i)
+static struct dtree *get_entry_info(const char *entry_name, 
+				    const char *entry_path,
+				    int node_i)
 {
 	struct dtree *node;
 	size_t plen, nlen;
@@ -174,20 +174,11 @@ static struct dtree *_get_entry_info(const char *entry_name,
 	return node;
 }
 
-static struct dtree *get_entry_info(const char *dir_path, 
-				    const char *entry_name,
-				    int node_i) 
+static inline bool is_kernel_dir(const char *dir_path)
 {
-	struct dtree *node;
-	char *entry_path;
-
-	node = NULL;
-	
-	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		node = _get_entry_info(entry_name, entry_path, node_i);
-		free(entry_path);	
-	}
-	return node;
+	return (strcmp(dir_path, "/proc") == 0 ||
+		strcmp(dir_path, "/sys") == 0 ||
+		strcmp(dir_path, "/dev") == 0);
 }
 
 /*
@@ -222,17 +213,45 @@ static int lstat_custom_fail(const char *path, struct stat *statbuf)
         return retval;
 }
 
+static struct dtree *get_dot_entry(const char *dir_path)
+{
+	const int dot_i = 0;
+	struct dtree *dot;
+	char *path;
+
+	dot = NULL;
+
+	if ((path = get_entry_path(dir_path, "."))) {
+		dot = get_entry_info(".", path, dot_i);
+		free(path);
+	}
+	return dot;
+}
+
+static struct dtree *get_two_dots_entry(const char *dir_path)
+{
+	const int two_dots_i = 1;
+	struct dtree *two_dots;
+	char *path;
+
+	two_dots = NULL;
+
+	if ((path = get_entry_path(dir_path, ".."))) {
+		two_dots = get_entry_info("..", path, two_dots_i);
+		free(path);
+	}
+	return two_dots;
+}
+
 /*
  * Returns the address of the beggining (the dot entry) 
  */
 static struct dtree *get_dot_entries(const char *dir_path)
 {
 	struct dtree *dot, *two_dots;
-	const int tow_dots_i = 1;
-	const int dot_i = 0;
 
-	if ((dot = get_entry_info(dir_path, ".", dot_i))) {
-		if ((two_dots = get_entry_info(dir_path, "..", tow_dots_i)))
+	if ((dot = get_dot_entry(dir_path))) {
+		if ((two_dots = get_two_dots_entry(dir_path)))
 			connect_mate_nodes(dot, two_dots);
 		else 
 			free_and_null_dtree(&dot);
@@ -247,13 +266,14 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
         struct dtree *current;
         struct dtree *begin;
 	struct dtree *child;
+	char *path;
 	int i;
 	
 	if (!(begin = get_dot_entries(dir_path)))
 		goto err_out;
 	/* 
 	 * The initial i is equal to 2 because i=0 goes to
-	 * the dot entry and i=1 goes to the tow_dots entry
+	 * the dot entry and i=1 goes to the two_dots entry
 	 */
 	i = 2;
 	current = begin->next;
@@ -261,26 +281,33 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 	while ((entry = readdir_inf(dp))) {
 		if (is_dot_entry(entry->d_name))
 			continue;
-		if (!(new_node = get_entry_info(dir_path, entry->d_name, i++)))
+		if (!(path = get_entry_path(dir_path, entry->d_name)))
 			goto err_free_dtree;
+		if (!is_kernel_dir(path)) {	
+			if (!(new_node = get_entry_info(entry->d_name, path, i++)))
+				goto err_free_path;
 
-		connect_mate_nodes(current, new_node);
-		current = new_node;
-			
-		if (S_ISDIR(current->data->file->fstatus->st_mode)) {
-			if ((child = get_dir_tree(current->data->file->fpath)))
-				connect_family_nodes(current, child);
-			else if (ERROR == EACCES)
-				IGNORE_EACCES();
-			else
-				goto err_free_dtree;
+			connect_mate_nodes(current, new_node);
+			current = new_node;
+				
+			if (S_ISDIR(current->data->file->fstatus->st_mode)) {
+				if ((child = get_dir_tree(current->data->file->fpath)))
+					connect_family_nodes(current, child);
+				else if (ERROR == EACCES)
+					IGNORE_EACCES();
+				else
+					goto err_free_path;
+			}
 		}
+		free(path);
 	}
 	if (ERROR)
 		goto err_free_dtree;
 
 	return begin;
 
+err_free_path:
+	free(path);
 err_free_dtree:
 	free_dtree(begin);
 err_out:
@@ -293,7 +320,7 @@ struct dtree *get_dir_tree(const char *path)
         DIR *dp;
 
 	retval = NULL;
-	
+
         if ((dp = opendir_inf(path))) {
                 retval = _get_dir_tree(dp, path);
                 
@@ -403,10 +430,7 @@ static inline bool is_zero_sized(off_t size)
 
 static inline bool is_relevant_dir_entry(const struct fdata *file)
 {
- 	/* Virtual files like the ones in /proc are zero sized */
-	return (S_ISDIR(file->fstatus->st_mode) && 
-		!is_dot_entry(file->fname) &&
-		!is_zero_sized(file->fstatus->st_size));
+	return (S_ISDIR(file->fstatus->st_mode) && !is_dot_entry(file->fname));
 }
 
 /*

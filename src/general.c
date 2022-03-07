@@ -180,7 +180,7 @@ char *get_mtime_str(time_t mtime)
 
 /*
  * Extract directory's path from the first entry path (dot_entry)
- *
+ */
 char *extract_dir_path(const char *dot_entry_path)
 {
 	size_t len;
@@ -196,4 +196,4 @@ char *extract_dir_path(const char *dot_entry_path)
 	}
 	return path;
 } 
-*/
+/**/
