@@ -26,10 +26,28 @@ void free_and_null(void **ptr)
 	*ptr = NULL;
 }
 
+/*
+ * Return zero if s1 is equal to s2. Else a non-zero value
+ * will be returned.
+ */
+int efficient_strcmp(const char *s1, const char *s2)
+{
+	/* 
+	 * Since the fact that I'm going to compare lots
+	 * paths the first character is going to be the same
+	 * which is a slash, therfore I will compare the second
+	 * character of the paths.
+	 */
+	if (s1[0] == s2[0] && s1[1] == s2[1])
+		return strcmp(s1, s2);
+	else
+		return -1;
+}
+
 bool is_dot_entry(const char *entry_name)
 {
-	return (strcmp(entry_name, ".") == 0 ||
-		strcmp(entry_name, "..") == 0);
+	return (efficient_strcmp(entry_name, ".") == 0 ||
+		efficient_strcmp(entry_name, "..") == 0);
 }
 
 static struct size_format proper_size_format(float size, char *unit)

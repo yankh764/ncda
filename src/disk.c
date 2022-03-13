@@ -82,7 +82,7 @@ static char *get_entry_path_not_slash(const char *dir_path,
 
 static inline bool is_slash(const char *dir_path)
 {
-	return (strcmp(dir_path, "/") == 0);
+	return (efficient_strcmp(dir_path, "/") == 0);
 }
 
 static char *get_entry_path(const char *dir_path, const char *entry_name)
@@ -99,7 +99,7 @@ static void free_and_null_dtree(struct dtree **begin)
 	*begin = NULL;
 }
 
-static inline off_t entry_size(blkcnt_t blk_num) 
+static inline off_t get_entry_size(blkcnt_t blk_num) 
 {
 	const int blk_size = 512;
 
@@ -115,7 +115,7 @@ static int insert_fdata_fields(struct fdata *ptr,
 	if (!(retval = lstat_inf(entry_path, ptr->fstatus))) {
 		memcpy(ptr->fname, entry_name, nlen);
 		memcpy(ptr->fpath, entry_path, plen);
-		ptr->fsize = entry_size(ptr->fstatus->st_blocks);
+		ptr->fsize = get_entry_size(ptr->fstatus->st_blocks);
 	}
 	return retval;
 }
@@ -176,9 +176,9 @@ static struct dtree *get_entry_info(const char *entry_name,
 
 static inline bool is_kernel_dir(const char *dir_path)
 {
-	return (strcmp(dir_path, "/proc") == 0 ||
-		strcmp(dir_path, "/sys") == 0 ||
-		strcmp(dir_path, "/dev") == 0);
+	return (efficient_strcmp(dir_path, "/proc") == 0 ||
+		efficient_strcmp(dir_path, "/sys") == 0 ||
+		efficient_strcmp(dir_path, "/dev") == 0);
 }
 
 /*
@@ -286,7 +286,6 @@ static struct dtree *_get_dir_tree(DIR *dp, const char *dir_path)
 		if (!is_kernel_dir(path)) {	
 			if (!(new_node = get_entry_info(entry->d_name, path, i++)))
 				goto err_free_path;
-
 			connect_mate_nodes(current, new_node);
 			current = new_node;
 				
