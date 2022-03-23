@@ -51,11 +51,11 @@ static int rm_dir_r(const char *);
  */
 static char *get_entry_path_slash(const char *entry_name)
 {
-	char slash = '/';
+	const char slash = '/';
 	char *entry_path;
 	size_t len;
 
-	len = strlen(entry_name) + sizeof(slash) + 1;
+	len = get_strsize(entry_name) + sizeof(slash);
 
 	if ((entry_path = malloc_inf(len)))
 		snprintf(entry_path, len, "%c%s", slash, entry_name);
@@ -69,8 +69,8 @@ static char *get_entry_path_slash(const char *entry_name)
 static char *get_entry_path_not_slash(const char *dir_path, 
 				      const char *entry_name)
 {
+	const char slash = '/';
 	char *entry_path;
-        char slash = '/';
 	size_t len;
 
 	len = strlen(dir_path) + strlen(entry_name) + sizeof(slash) + 1;
@@ -162,11 +162,12 @@ static struct dtree *get_entry_info(const char *entry_name,
 	struct dtree *node;
 	size_t plen, nlen;
 
-	nlen = strlen(entry_name) + 1;
-	plen = strlen(entry_path) + 1;
+	nlen = get_strsize(entry_name);
+	plen = get_strsize(entry_path);
 
 	if ((node = alloc_dtree(nlen, plen))) {
-		if(!insert_fdata_fields(node->data->file, entry_name, nlen, entry_path, plen))
+		if(!insert_fdata_fields(node->data->file, entry_name, 
+					nlen, entry_path, plen))
 			insert_cdata_fields(node->data, node_i);
 		else
 			free_and_null_dtree(&node);
@@ -201,16 +202,6 @@ static inline void connect_family_nodes(struct dtree *current,
 {
 	current->child = new_node;
 	new_node->parent = current;
-}
-
-static int lstat_custom_fail(const char *path, struct stat *statbuf)
-{
-        int retval;
-
-        if ((retval = lstat_inf(path, statbuf)))
-                if (ERROR == EACCES)
-                        retval = IGNORE_EACCES();
-        return retval;
 }
 
 static struct dtree *get_dot_entry(const char *dir_path)
@@ -329,36 +320,16 @@ struct dtree *get_dir_tree(const char *path)
         return retval;
 }
 
-static int unlink_custom_fail(const char *path)
-{
-	int retval;
-
-	if ((retval = unlink_inf(path)))
-		if (ERROR == EACCES)
-			retval = IGNORE_EACCES();
-	return retval;
-}
-
-static int rmdir_custom_fail(const char *path)
-{
-	int retval;
-
-	if ((retval = rmdir_inf(path)))
-		if (ERROR == EACCES)
-			retval = IGNORE_EACCES();
-	return retval;
-}
-
 static int _delete_entry(const char *entry_path)
 {
 	struct stat statbuf;
 
-	 if (lstat_custom_fail(entry_path, &statbuf))
+	 if (lstat_inf(entry_path, &statbuf))
 		return -1;
 	 if (S_ISDIR(statbuf.st_mode))
 		return rm_dir_r(entry_path);
 	 else
-		return unlink_custom_fail(entry_path);
+		return unlink_inf(entry_path);
 }
 
 static int delete_entry(const char *dir_path, const char *entry_name)
@@ -368,7 +339,15 @@ static int delete_entry(const char *dir_path, const char *entry_name)
 	
 	retval = -1;
 	if ((entry_path = get_entry_path(dir_path, entry_name))) {
-		retval = _delete_entry(entry_path);
+		if ((retval = _delete_entry(entry_path)))
+			/*
+			 * Ignore permission denied error, but at the same 
+			 * time do not remove the state of ERROR for the
+			 * sake of distinguishing wether the entry got 
+			 * completaly removed or not. 
+			 */
+			if (ERROR == EACCES)
+				retval = 0;
 		free(entry_path);
 	}
 	return retval;
@@ -407,19 +386,27 @@ static int rm_dir_r(const char *path)
 			retval = -1;
 		/* Remove the directory itself if it's already empty */
 		if (!retval)
-			retval = rmdir_custom_fail(path);
-	} else if (ERROR == EACCES) {
-		retval = IGNORE_EACCES();
+			retval = rmdir_inf(path);
 	}
 	return retval;
 }
 
-int rm_entry(const struct fdata *data)
+/*
+ * Remove node from the dtree when it is deleted
+ */
+void purge_node(struct dtree *node)
 {
-	if (S_ISDIR(data->fstatus->st_mode))
-		return rm_dir_r(data->fpath);
+	/* Connect the previous node with the next node */
+	node->prev = node->next;
+	free_dtree(node);
+}
+
+int rm_entry(struct dtree *entry)
+{
+	if (S_ISDIR(entry->data->file->fstatus->st_mode))
+		return rm_dir_r(entry->data->file->fpath);
 	else
-		return unlink_custom_fail(data->fpath);
+		return unlink_inf(entry->data->file->fpath);
 }
 
 static inline bool is_zero_sized(off_t size)

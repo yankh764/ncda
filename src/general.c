@@ -196,6 +196,13 @@ char *get_mtime_str(time_t mtime)
 		return NULL;
 }
 
+size_t get_strsize(const char *str)
+{
+	const char null_byte = '\0';
+
+	return strlen(str) + sizeof(null_byte);
+}
+
 /*
  * Extract directory's path from the first entry path (dot_entry)
  */
@@ -204,7 +211,7 @@ char *extract_dir_path(const char *dot_entry_path)
 	size_t len;
 	char *path;
 
-	len = strlen(dot_entry_path);
+	len = get_strsize(dot_entry_path);
 	
 	if (len > 2)
 		len--;
