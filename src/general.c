@@ -220,5 +220,4 @@ char *extract_dir_path(const char *dot_entry_path)
 		path[--len] = '\0';
 	}
 	return path;
-} 
-/**/
+}

@@ -134,19 +134,34 @@ static int print_separators_only(WINDOW *wp, int y)
 	return (print_separator(wp, y, x1) || print_separator(wp, y, x2)) ? -1 : 0;
 }
 
-static int display_entries_info(WINDOW *wp, const struct dtree *node)
+static inline int print_entry_size(WINDOW *wp, const struct dtree *node, int y)
+{
+	const off_t size = node->data->file->fsize;
+
+	return print_fsize(wp, y, size);
+}
+
+static inline int print_entry_mtime(WINDOW *wp, const struct dtree *node, int y)
 {
 	const time_t mtime = node->data->file->fstatus->st_mtim.tv_sec;
-	const off_t size = node->data->file->fsize;
+
+	return print_mtime(wp, y, mtime);
+}
+
+static int print_entry_info(WINDOW *wp, const struct dtree *node, int y)
+{
+	return (print_entry_size(wp, node, y) || print_entry_mtime(wp, node, y)) ? -1 : 0;
+}
+
+static int display_entries_info(WINDOW *wp, const struct dtree *node)
+{
 	const short color_pair = node->data->curses->cpair;
 	const char *const name = node->data->file->fname;
 	const char eos = node->data->curses->eos;
 	const int y = node->data->curses->y;
 	
 	if (!is_dot_entry(name)) {
-		if (print_fsize(wp, y, size))
-			return -1;
-		if (print_mtime(wp, y, mtime))
+		if (print_entry_info(wp, node, y))
 			return -1;
 	}
 	if (print_fname(wp, y, name, eos, color_pair))
